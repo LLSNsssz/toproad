@@ -299,6 +299,15 @@ const K = {
   ARMY_RATIO: 2.4, ARMY_MARGIN: 0.3, ARMY_FIRE_T: 8.5, ARMY_GAP: 5, VOLLEY_SEC: 3, VOLLEY_T: 0.6, CLASH_T: 2, HERO_HP: 0.5,
   ARMY_ADV: 8, SQUAD_ADV: 4, VOLLEY_SHORT: 2.5, ARMY_PRE_CAP: 0.6, ARMY_REMNANT: 0.12,
   RED_SQUAD: [0.25, 0.55], RED_SQUAD_SPD: 1.2,
+  // pile-up front: the rear climbs onto the front ranks, so the front grows tiers (층) and every tier is armour
+  ARMY_RATIO_N: 0.025, ARMY_RATIO_MAX: 3.4,
+  PILE_TMAX: 7, PILE_TK: 0.85, PILE_ARMOR: 0.15, PILE_EXP: 0.29, PILE_EXP0: 0.24, PILE_NETK: 0,
+  PILE_TAU: 10, PILE_OVER: 0.5, PILE_SEE: 75, PILE_SURGE: 3, PILE_TIER_T: 4, PILE_VOLLEY_STRIP: 2,
+  PILE_DY: 0.64, PILE_LEAN: 0.10, PILE_FX_CAP: 24, PILE_RUNNERS: 8,
+  // zombie tower siege: from ZPILE_FROM the horde climbs a sandbag wall; bodies still behind it take ZPILE_COVER damage.
+  // the squad halts ZPILE_STOP short of the wall for up to ZPILE_HOLD s; whatever still stands then floods over
+  ZPILE_ON: 1, ZPILE_FROM: 11, ZPILE_TMAX: 5, ZPILE_N0: 30, ZPILE_NK: 1.0, ZPILE_NMIN: 36, ZPILE_NMAX: 75,
+  ZPILE_T: 3.5, ZPILE_EXP: 0.5, ZPILE_DRAIN: 6, ZPILE_HEAVY: 1.5, ZPILE_SEE: 80, ZPILE_STOP: 14, ZPILE_HOLD: 5, ZPILE_COVER: 0.4, ZPILE_FLOOD_T: 2.5, ZPILE_FLOOD_AHEAD: 12,
   MAXDRAW: 150, BULLET_CAP: 140, PART_CAP: 520, TEXT_CAP: 30, FLYER_CAP: 24, MAXMEN: 9999999, SEED_OFF: 0,
 };
 
@@ -309,6 +318,7 @@ const FAR = 100;         // draw distance
 const CAM_BACK = 7;      // camera distance behind the squad
 const MAXDRAW = 150;     // formation slots
 const LANES = [-2, 0, 2];
+const ARMY_COLS = 13, ZCOLS = 9;
 function laneOf(x, prev) {
   let l = x < -1 ? 0 : x > 1 ? 2 : 1;
   if (prev != null && prev !== l) {
@@ -322,14 +332,16 @@ function laneOf(x, prev) {
 const STAR = [0, 1, 1.3, 1.6, 1.9, 2.2];
 const rifleCap = m => Math.min(72, 42 + 0.2 * m);
 const WEAPONS = {
-  rifle:   { name: '소총', dps: 1.00, cap: rifleCap, spd: 50, range: 54, pellets: 1, fan: 0, jitter: 0, pierce: 0, splash: 0, ap: false, aim: 0.85, intro: 1, col: '#fff6c2', glow: 'rgba(255,190,40,.45)' },
-  minigun: { name: '기관총', dps: 1.20, cap: m => Math.min(100, 1.4 * rifleCap(m)), spd: 60, range: 46, pellets: 1, fan: 0, jitter: 0.12, pierce: 0, splash: 0, ap: false, aim: 0.85, intro: 2, col: '#fffbe0', glow: 'rgba(255,235,140,.4)' },
-  shotgun: { name: '샷건', dps: 1.40, cap: () => 10, spd: 44, range: 26, pellets: 5, fan: 0.12, jitter: 0, pierce: 0, splash: 0, ap: false, aim: 0, fall: [14, 26, 0.6], intro: 3, col: '#ffb347', glow: 'rgba(255,120,40,.5)', short: true },
-  rocket:  { name: '로켓', dps: 1.10, cap: () => 6, spd: 28, range: 58, pellets: 1, fan: 0, jitter: 0, pierce: 0, splash: 1.4, ap: true, aim: 0.85, intro: 5, col: '#ff7a2b', glow: 'rgba(255,120,40,.55)' },
-  laser:   { name: '레이저', dps: 1.15, cap: () => 16, spd: 140, range: 60, pellets: 1, fan: 0, jitter: 0, pierce: 3, splash: 0, ap: true, aim: 0.85, intro: 10, col: '#d8ffff', glow: 'rgba(40,220,255,.55)' },
-  flame:   { name: '화염방사기', dps: 1.55, cap: () => 36, spd: 22, range: 16, pellets: 1, fan: 0.22, jitter: 0, pierce: 2, splash: 0, ap: true, aim: 0, fall: [12, 16, 0.5], noGate: true, intro: 14, col: '#ffcf4a', glow: 'rgba(255,90,20,.55)', short: true },
+  rifle:   { name: '소총', dps: 1.00, cap: rifleCap, spd: 50, range: 54, pellets: 1, fan: 0, jitter: 0, pierce: 0, splash: 0, ap: false, aim: 0.85, intro: 1, col: '#fff6c2', glow: 'rgba(255,190,40,.45)', pile: [1, 1, 0] },
+  minigun: { name: '기관총', dps: 1.20, cap: m => Math.min(100, 1.4 * rifleCap(m)), spd: 60, range: 46, pellets: 1, fan: 0, jitter: 0.12, pierce: 0, splash: 0, ap: false, aim: 0.85, intro: 2, col: '#fffbe0', glow: 'rgba(255,235,140,.4)', pile: [1, 1, 0] },
+  shotgun: { name: '샷건', dps: 1.40, cap: () => 10, spd: 44, range: 26, pellets: 5, fan: 0.12, jitter: 0, pierce: 0, splash: 0, ap: false, aim: 0, fall: [14, 26, 0.6], intro: 3, col: '#ffb347', glow: 'rgba(255,120,40,.5)', short: true, pile: [1, 1.3, 0] },
+  rocket:  { name: '로켓', dps: 1.10, cap: () => 6, spd: 28, range: 58, pellets: 1, fan: 0, jitter: 0, pierce: 0, splash: 1.4, ap: true, aim: 0.85, intro: 5, col: '#ff7a2b', glow: 'rgba(255,120,40,.55)', pile: [1, 1.5, 0.5] },
+  laser:   { name: '레이저', dps: 1.15, cap: () => 16, spd: 140, range: 60, pellets: 1, fan: 0, jitter: 0, pierce: 3, splash: 0, ap: true, aim: 0.85, intro: 10, col: '#d8ffff', glow: 'rgba(40,220,255,.55)', pile: [0.7, 1, 0] },
+  flame:   { name: '화염방사기', dps: 1.55, cap: () => 36, spd: 22, range: 16, pellets: 1, fan: 0.22, jitter: 0, pierce: 2, splash: 0, ap: true, aim: 0, fall: [12, 16, 0.5], noGate: true, intro: 14, col: '#ffcf4a', glow: 'rgba(255,90,20,.55)', short: true, pile: [0.8, 1.2, 0] },
 };
 const WORDER = ['rifle', 'minigun', 'shotgun', 'rocket', 'laser', 'flame'];
+// [armour factor, tier strip factor, neighbour strip] against piled-up enemies
+const PILE_DEF = [1, 1, 0];
 
 // zombie types: hp is a multiple of the stage's walker HP, contact kills pct of the squad (at least min)
 const ZT = {
@@ -448,6 +460,25 @@ const stageMul = n => tierOf(n) === 'war' ? 2 : tierOf(n) === 'big' ? 1.5 : 1;
 // even stages (except big/warlord ones) end on a castle bridge against a counted red army; the rest end with a zombie boss
 const stageKind = n => n === 2 || (n > 2 && n % 2 === 0 && n % 10 !== 0) ? 'army' : 'boss';
 const themeOf = n => stageKind(n) === 'army' ? 'castle' : 'desert';
+// army size grows faster than the squad; the first two army stages teach the clash with a smaller army
+const armySoft = n => n <= 2 ? 0.4 : n <= 4 ? 0.7 : 1;
+const armyRatio = n => Math.min(K.ARMY_RATIO_MAX, K.ARMY_RATIO + K.ARMY_RATIO_N * Math.max(0, n - 4));
+// tier cap of the piled front: 2층 at 4, 3층 at 8, 4층 at 15, 5층 at 25, 6층 at 37, 7층 at 52
+const pileT = n => n <= 2 ? 1 : Math.max(1, Math.min(K.PILE_TMAX, 1 + Math.floor(K.PILE_TK * Math.sqrt(n - 2))));
+// armour the expected squad actually pays on average, folded into unitHP so the expected outcome stays put
+const pileAexp = n => 1 + K.PILE_ARMOR * Math.max(0, K.PILE_EXP * (pileT(n) - 1) - K.PILE_EXP0);
+const pileNet = n => 1 + K.PILE_NETK * ramp(n, 20);
+const zWallT = n => Math.min(K.ZPILE_TMAX, Math.max(2, 1 + Math.floor(K.PILE_TK * Math.sqrt(Math.max(0, n - 2)))));
+const hash01 = k => { const s = Math.sin(k * 12.9898) * 43758.5453; return s - Math.floor(s); };
+const colX = (c, nc) => -ROAD + 0.35 + (2 * ROAD - 0.7) * (c + 0.5) / nc;
+const pileCol = (x, nc) => clamp(Math.floor((x + ROAD - 0.35) / (2 * ROAD - 0.7) * nc), 0, nc - 1);
+// the front climbs into three human towers (one centre, two flanking the giant) with lower valleys between
+function colBias(c, nc, seed) {
+  const m = (nc - 1) / 2, peaks = [m - 4 + Math.floor(2 * hash01(seed + 31)), m, m + 4 - Math.floor(2 * hash01(seed + 47))];
+  let pk = 0;
+  for (const p of peaks) pk = Math.max(pk, Math.exp(-(((c - p) / 1.2) ** 2)));
+  return (0.55 + 0.8 * pk) * (0.9 + 0.2 * hash01(seed + c));
+}
 
 // reference spender: what a typical player has bought by stage n (EM = expected upgrade multiplier)
 const REF = { EM: [1, 1], LM: [0, 0], coins: 0, L: { men: 0, dmg: 0, rate: 0, coin: 0, armor: 0 } };
@@ -602,10 +633,11 @@ const SEGDEF = {
   elite:  { intro: 9, w: 0.6, max: 1, len: 34 },
   redsquad: { intro: 2, w: 1.4, max: 2, len: 30, army: true },
 };
-const SEGNAME = { split: '3갈래 러시', horde: '대량 러시', wall: '마이너스 장벽', barrel: '폭발 드럼 지대', charge: '충전 게이트', saw: '톱날 구간', elite: '정예 관문', redsquad: '적 분대' };
+const SEGNAME = { split: '3갈래 러시', horde: '대량 러시', wall: '마이너스 장벽', barrel: '폭발 드럼 지대', charge: '충전 게이트', saw: '톱날 구간', elite: '정예 관문', redsquad: '적 분대', zpile: '좀비 탑' };
 const SEGHINT = {
   split: '왼쪽 +1 / 가운데 좀비 둥지 / 오른쪽 보상 금고',
   horde: '벽이 터지면 좀비 떼가 쏟아져요',
+  zpile: '좀비가 벽을 타고 쌓여요 · 꼭대기를 쏴서 넘어오지 못하게',
   wall: '빨간 장벽을 쏴서 숫자를 뒤집으세요',
   barrel: '빨간 드럼을 쏘면 주변 좀비까지 터져요',
   charge: '회색 게이트를 쏠수록 배수가 올라가요',
@@ -923,8 +955,25 @@ function genStage(n) {
     if (p.type === 'horde') {
       const heavy = r() < 0.5 ? 0 : 2;
       const N = clamp(Math.round(K.HORDE_SHARE * 4 * vis(EN) / (0.5 * BTK(n))), K.HORDE_MIN, K.HORDE_MAX);
-      objs.push({ type: 'sandbag', x: 0, z: z0 + 46, hw: ROAD, h: 1.1, hittable: false, dead: false, flash: 0 });
-      events.push({ z: z0, type: 'horde', wallZ: z0 + 46, heavy, N, hp: hpw, EN });
+      if (K.ZPILE_ON && n >= K.ZPILE_FROM) {
+        // zombie tower: the horde climbs the sandbag wall tier by tier; shoot the crest before it spills over
+        const Tw = zWallT(n), wallZ = z0 + 46;
+        const Np = clamp(Math.round(K.ZPILE_N0 + K.ZPILE_NK * n), K.ZPILE_NMIN, K.ZPILE_NMAX);
+        const unitHP = E * K.ZPILE_T * Zf(n) * creep(n) / (Np * (1 + K.PILE_ARMOR * K.ZPILE_EXP * (Tw - 1)));
+        // tiers whose heads stay below the sandbags are in cover; the drawn wall is tall enough to hide them
+        const wallH = 0.32 * Tw + 0.1, hid = Math.max(0, Math.floor((wallH + 0.05 - 0.72) / K.PILE_DY) + 1);
+        const wall = { type: 'sandbag', x: 0, z: wallZ, hw: ROAD, h: wallH, rows: Math.max(Tw, Math.ceil((K.PILE_DY * (hid - 1) + 0.85) / 0.323)), hittable: false, dead: false, flash: 0 };
+        objs.push(wall);
+        objs.push({ type: 'zpile', x: 0, z: wallZ + 0.9, hw: ROAD, hittable: true, dead: false, flash: 0, wall, wallZ, Tw, heavy, EN, unitHP,
+          tiers: new Float32Array(ZCOLS).fill(1), acc: new Float32Array(ZCOLS), rho: new Float32Array(ZCOLS),
+          w: Float32Array.from({ length: ZCOLS }, (_, c) => (0.85 + 0.3 * hash01(97 * n + c)) * (Math.floor(c / 3) === heavy ? K.ZPILE_HEAVY : 1)),
+          queue: Np - ZCOLS, count: Np, max: Np, press: false, cleared: false, killed: 0, spilled: 0, flooded: 0, spillT: -9, fx: [],
+          hid, siege: false, hold: 0, blockT: -9 });
+        seg.type = 'zpile';
+      } else {
+        objs.push({ type: 'sandbag', x: 0, z: z0 + 46, hw: ROAD, h: 1.1, hittable: false, dead: false, flash: 0 });
+        events.push({ z: z0, type: 'horde', wallZ: z0 + 46, heavy, N, hp: hpw, EN });
+      }
       gatePair(z0 + 64, { horde: true, side: heavy === 2 ? 1 : -1 });
     } else if (p.type === 'wall') {
       wave(z0 + 20, s, 0.5, { form: 'wall2', brute: false });
@@ -983,8 +1032,8 @@ function genStage(n) {
   events.sort((a, b) => a.z - b.z);
   const tier = tierOf(n);
   // the first two army stages teach the clash, so their armies are smaller
-  const soft = n <= 2 ? 0.4 : n <= 4 ? 0.7 : 1;
-  const army = kind === 'army' ? { R0: pretty(K.ARMY_RATIO * M.C * soft), soft } : null;
+  const soft = armySoft(n);
+  const army = kind === 'army' ? { R0: pretty(armyRatio(n) * M.C * soft), soft, T: pileT(n) } : null;
   return { M, nu, gates, zombies, objs, events, segs, len, boss: { arch: army ? 'giant' : bossFor(n), tier, army }, bonus, order, kind, theme: themeOf(n) };
 }
 
@@ -995,9 +1044,19 @@ const keys = { l: false, r: false };
 
 // the red army waits at the end of the bridge; each red soldier is worth unitHP of damage
 function makeArmy(n, L) {
-  const M = L.M, R0 = L.boss.army.R0;
+  const M = L.M, R0 = L.boss.army.R0, T = pileT(n);
   const need = Math.max(1, R0 - (1 - K.ARMY_MARGIN) * M.C * L.boss.army.soft);
-  return { count: R0, max: R0, z: L.len + K.HOLD_GAP + K.ARMY_GAP, unitHP: M.E(1) * K.ARMY_FIRE_T * Zf(n) * creep(n) / need, acc: 0, flash: 0, shown: R0 };
+  const base = M.E(1) * K.ARMY_FIRE_T * Zf(n) * creep(n);
+  const ar = { count: R0, max: R0, z: L.len + K.HOLD_GAP + K.ARMY_GAP, unitHP: base / need, acc: 0, flash: 0, shown: R0, pile: null };
+  if (T > 1) {
+    // h[c] = tiers standing in front column c (float: the fraction is the next climber); each tier is armour on that column
+    ar.unitHP = base * pileNet(n) / (need * pileAexp(n));
+    ar.pile = { nc: ARMY_COLS, T, h: new Float32Array(ARMY_COLS).fill(1), h0: new Float32Array(ARMY_COLS), hT: new Float32Array(ARMY_COLS),
+      b: Float32Array.from({ length: ARMY_COLS }, (_, c) => colBias(c, ARMY_COLS, 13 * n)),
+      tierHP: K.PILE_TIER_T * M.E(1) * Zf(n) * creep(n) / ARMY_COLS,
+      press: 0, woke: false, top: 1, peak: 1, climb: false, fx: [], dropT: new Float32Array(ARMY_COLS).fill(-9), raw: 0, eff: 0, hardT: -9 };
+  }
+  return ar;
 }
 function newRun(stage) {
   const L = genStage(stage);
@@ -1206,7 +1265,7 @@ function splash(x, z, r, dmg, skip) {
   for (const o of g.objs) {
     if (o.dead || !o.hittable || o === skip) continue;
     const dx = o.x - x, dz = o.z - z;
-    if (dx * dx + dz * dz <= (r + o.hw * 0.5) ** 2) hitObj(o, dmg, SPLASH_B);
+    if (dx * dx + dz * dz <= (r + o.hw * 0.5) ** 2) hitObj(o, dmg, o.type === 'zpile' ? { ...SPLASH_B, x } : SPLASH_B);
   }
 }
 const SPLASH_B = { ap: true, splash: 1, pierce: 0, kind: 'splash' };
@@ -1240,6 +1299,7 @@ function aimAt(x, z, W) {
     if (o.dead || !o.hittable) continue;
     const dz = o.z - z;
     if (dz < 0.5 || dz > W.range || dz >= best) continue;
+    if (o.type === 'zpile') { best = dz; vx = 0; continue; }
     const dx = o.x - x;
     if (Math.abs(dx) < o.hw + 0.3) { best = dz; vx = dx / (dz / W.spd) * 0.8; }
   }
@@ -1351,9 +1411,98 @@ function armyFloor(ar) {
   if (g.clash.st === 'melee') return 0;
   return Math.min(ar.count, Math.max(1, Math.ceil(K.ARMY_REMNANT * g.count)));
 }
+// ---------- pile-up helpers ----------
+const capEff = ar => ar.count >= 2 * ar.pile.nc ? Math.min(ar.pile.T, Math.floor(ar.count / ar.pile.nc)) : 1;
+function pileTumble(fx, x, y, z, vz, cols) {
+  if (reduceMotion || fx.length >= K.PILE_FX_CAP) { burst(x, y + 0.4, z, 2, cols, 2.5); return; }
+  fx.push({ x, y, z, vx: rand(-1.5, 1.5), vy: rand(2.5, 4), vz, rot: 0, vr: rand(-6, 6), life: 1.2, cols });
+}
+function stepTumblers(fx, dt) {
+  for (let i = fx.length - 1; i >= 0; i--) {
+    const f = fx[i];
+    f.vy -= 14 * dt; f.x += f.vx * dt; f.y += f.vy * dt; f.z += f.vz * dt; f.rot += f.vr * dt; f.life -= dt;
+    if (f.y <= 0 || f.life <= 0) { burst(f.x, 0.3, f.z, 3, f.cols, 2.5); fx.splice(i, 1); }
+  }
+}
+// knock d tiers off column c; whole tiers that fall are thrown off the top
+function pileStrip(ar, c, d, dir) {
+  const P = ar.pile, h0 = P.h[c], h1 = Math.max(1, h0 - d);
+  P.h[c] = h1;
+  const lost = Math.floor(h0) - Math.floor(h1);
+  if (lost > 0 && G.t - P.dropT[c] > 0.12) {
+    P.dropT[c] = G.t;
+    for (let k = 0; k < Math.min(lost, 3); k++) { const tier = Math.floor(h0) - 1 - k; pileTumble(P.fx, colX(c, P.nc), K.PILE_DY * tier, ar.z + K.PILE_LEAN * tier, dir * rand(1, 2), RED); }
+    sfx('pop');
+  }
+}
+// volley bolts favour the tallest towers
+function pickCol(P) {
+  let s = 0;
+  for (let c = 0; c < P.nc; c++) s += P.h[c] * P.h[c];
+  let x = Math.random() * s;
+  for (let c = 0; c < P.nc; c++) if ((x -= P.h[c] * P.h[c]) <= 0) return c;
+  return P.nc - 1;
+}
+// the top body of the struck column takes the damage; while it is still behind the wall the sandbags soak most of it
+function hitZPile(o, dmg, b) {
+  const pw = (WEAPONS[b.kind] || {}).pile || PILE_DEF, cols = castleOn() ? RED : GOO;
+  const hitCol = (c, raw) => {
+    if (o.tiers[c] < 1) {
+      let best = -1, bd = 99;
+      for (let k = 0; k < ZCOLS; k++) if (o.tiers[k] >= 1 && Math.abs(k - c) < bd) { bd = Math.abs(k - c); best = k; }
+      if (best < 0) return;
+      c = best;
+    }
+    const fl = Math.floor(o.tiers[c]), cover = fl <= o.hid ? K.ZPILE_COVER : 1;
+    if (cover < 1 && G.t - o.blockT > 0.3) { o.blockT = G.t; burst(colX(c, ZCOLS), o.wall.h, o.wallZ, 2, ['#c9b07a', '#fff6c2'], 2, 0.08); }
+    o.acc[c] += raw * cover / (1 + pw[0] * K.PILE_ARMOR * (fl - 1));
+    // one body per hit: the cover rule changes with the new top body, so the next hit re-reads it
+    if (o.acc[c] >= o.unitHP && o.tiers[c] >= 1 && o.count > 0) {
+      o.acc[c] -= o.unitHP;
+      o.tiers[c] -= 1; o.count--; o.killed++; G.kills++;
+      pileTumble(o.fx, colX(c, ZCOLS), K.PILE_DY * Math.floor(o.tiers[c]), o.z, rand(1, 2), cols);
+    }
+  };
+  const c = pileCol(b.x, ZCOLS);
+  hitCol(c, dmg);
+  if (pw[2]) { if (c > 0) hitCol(c - 1, 0.3 * dmg); if (c < ZCOLS - 1) hitCol(c + 1, 0.3 * dmg); }
+  o.flash = 0.06;
+  if (o.count <= 0 && !o.cleared) {
+    o.cleared = true; o.hittable = false;
+    burst(0, 1, o.z, 30, cols, 5);
+    floatText(0, 2.2, o.z, themed('좀비 탑 붕괴!'), '#ffc21a', 1.1, false);
+    sfx('crate');
+  }
+}
+// the siege ends: the wall bursts and whatever still stands floods over
+function endZPile(o) {
+  const g = G;
+  o.wall.dead = true;
+  burst(0, 0.6, o.wallZ, 40, ['#c9b07a', '#bba16b', '#8a7a52'], 7, 0.18);
+  g.shake = Math.max(g.shake, 8); sfx('boom');
+  if (g.halt === o) g.halt = null;
+  // the march resumes at once, so the flood keeps a lead on the squad instead of popping in behind or on top of it
+  if (o.count > 0) { g.hordes.push({ t: 0, acc: 0, left: o.count, per: o.count / (K.ZPILE_FLOOD_T / 0.25), heavy: o.heavy, z: o.wallZ, ahead: K.ZPILE_FLOOD_AHEAD, hp: 2 * o.unitHP }); o.flooded = o.count; callout('좀비 떼!', 1.0); }
+  o.dead = true;
+  g.stats.zpile = { N: o.max, Tw: o.Tw, killed: o.killed, spilled: o.spilled, flooded: o.flooded, hold: +o.hold.toFixed(1) };
+}
 function hitArmy(ar, dmg, b) {
-  ar.acc += dmg * (b.splash ? 1.6 : 1);
-  ar.dmg = (ar.dmg || 0) + dmg * (b.splash ? 1.6 : 1);
+  const raw = dmg * (b.splash ? 1.6 : 1), P = ar.pile;
+  let eff = raw;
+  if (P) {
+    // a hit on a tall column pays its armour; the hit also knocks tiers off that column
+    const c = pileCol(b.x, P.nc), pw = (WEAPONS[b.kind] || {}).pile || PILE_DEF;
+    const A = 1 + pw[0] * K.PILE_ARMOR * (P.h[c] - 1);
+    eff = raw / A; P.raw += raw; P.eff += eff;
+    pileStrip(ar, c, pw[1] * dmg / P.tierHP, 1);
+    if (pw[2]) { if (c > 0) pileStrip(ar, c - 1, pw[2] * dmg / P.tierHP, 1); if (c < P.nc - 1) pileStrip(ar, c + 1, pw[2] * dmg / P.tierHP, 1); }
+    if (A >= 1.3) {
+      if (Math.random() < 0.25) burst(b.x, 0.6 + K.PILE_DY * (P.h[c] - 1), ar.z, 1, ['#e8edf2', '#9aa0a8'], 2, 0.07);
+      if (A >= 1.45 && G.t - P.hardT > 1.5) { P.hardT = G.t; floatText(colX(c, P.nc), 1.3 + K.PILE_DY * (P.h[c] - 1), ar.z, '단단!', '#c9d3dc', 0.7, false); }
+    }
+  }
+  ar.acc += eff;
+  ar.dmg = (ar.dmg || 0) + raw;
   // before the charge the front ranks lock shields: at most ARMY_PRE_CAP of the army can fall
   const floor = armyFloor(ar);
   const k = Math.min(ar.count - floor, Math.floor(ar.acc / ar.unitHP));
@@ -1363,12 +1512,13 @@ function hitArmy(ar, dmg, b) {
   }
   if (k > 0) {
     ar.acc -= k * ar.unitHP; ar.count -= k; G.kills += k;
-    if (G.t - (ar.flashT || -1) > 0.15) { ar.flash = 0.06; ar.flashT = G.t; burst(b.x, 0.8, ar.z, 3, RED, 2.5); }
+    if (G.t - (ar.flashT || -1) > 0.15) { ar.flash = 0.06; ar.flashT = G.t; burst(b.x, 0.8 + (P ? K.PILE_DY * (P.top - 1) : 0), ar.z, 3, RED, 2.5); }
   }
   if (ar.count <= 0) armyDown();
 }
 function hitObj(o, dmg, b) {
   if (o.dead) return;
+  if (o.type === 'zpile') { hitZPile(o, dmg, b); return; }
   if (o.type === 'redsquad') {
     o.acc += dmg * (b.splash ? 1.6 : 1);
     const k = Math.min(o.count, Math.floor(o.acc / o.unitHP));
@@ -1517,7 +1667,7 @@ function updateSpawners(dt) {
       for (let i = 0; i < n; i++) {
         const roll = Math.random();
         const lane = roll < 0.6 ? h.heavy : roll < 0.8 ? 1 : 2 - h.heavy;
-        if (!spawnZombie('swarm', LANES[lane] + rand(-0.6, 0.6), h.z + rand(-0.5, 0.5), h.hp)) { n = i; break; }
+        if (!spawnZombie('swarm', LANES[lane] + rand(-0.6, 0.6), (h.ahead ? Math.max(h.z, g.dist + h.ahead) : h.z) + rand(-0.5, 0.5), h.hp)) { n = i; break; }
       }
       h.left -= n;
       if (n === 0) break;
@@ -1591,6 +1741,44 @@ function updateObjs(dt) {
       case 'drum': case 'barrel': case 'sandbag':
         if (o.z < g.dist - 2) o.dead = true;
         break;
+      case 'zpile': {
+        const dz = o.wallZ - g.dist, sdt = g.halt && g.halt !== o ? 0 : dt;
+        stepTumblers(o.fx, dt);
+        if (!o.press && dz <= K.ZPILE_SEE) {
+          // the squad's size scales the climbing queue exactly like the classic horde burst
+          o.press = true;
+          const D = clamp(Math.pow(g.count / Math.max(1, o.EN), K.DDA_EXP), K.DDA_MIN, K.DDA_MAX);
+          o.queue = Math.round(o.queue * D);
+          let s = 0; for (let c = 0; c < ZCOLS; c++) s += Math.floor(o.tiers[c]);
+          o.count = o.max = s + o.queue;
+          let W = 0; for (let c = 0; c < ZCOLS; c++) W += o.w[c];
+          for (let c = 0; c < ZCOLS; c++) o.rho[c] = o.queue * o.w[c] / (W * K.ZPILE_DRAIN);
+        }
+        if (o.press && !o.cleared) {
+          for (let c = 0; c < ZCOLS; c++) {
+            if (o.queue > 0 && o.tiers[c] < o.Tw + 1) {
+              const f0 = Math.floor(o.tiers[c]);
+              o.tiers[c] += o.rho[c] * sdt;
+              if (Math.floor(o.tiers[c]) > f0) { if (o.queue > 0) o.queue--; else o.tiers[c] = f0 + 0.999; }
+            }
+            // a column holds Tw bodies; the next one over the top hops the wall
+            if (o.tiers[c] >= o.Tw + 1) {
+              const zb = spawnZombie('swarm', colX(c, ZCOLS) + rand(-0.15, 0.15), o.wallZ - 0.7, 2 * o.unitHP, { hopT: 0.35, hop0: o.wall.h, hy: o.wall.h });
+              if (zb) { o.tiers[c] -= 1; o.count--; o.spilled++; if (g.t - o.spillT > 1) { o.spillT = g.t; floatText(colX(c, ZCOLS), o.wall.h + 1.2, o.wallZ, '넘어온다!', '#ff6d7c', 0.8, false); } }
+              else o.tiers[c] = o.Tw + 1;
+            }
+          }
+          if (o.queue <= 0) for (let c = 0; c < ZCOLS; c++) o.tiers[c] = Math.floor(o.tiers[c]);
+          if (o.count <= 0) { o.cleared = true; o.hittable = false; }
+        }
+        if (!o.siege && dz <= K.ZPILE_STOP && g.phase === 'run') {
+          // the squad stops in front of the wall and has ZPILE_HOLD seconds to bring the tower down
+          if (o.count > 0 && !g.halt) { o.siege = true; g.halt = o; callout(themed('좀비 탑 공성!'), 1.2); sfx('roar'); }
+          else { endZPile(o); break; }
+        }
+        if (o.siege) { o.hold += dt; if (o.count <= 0 || o.hold >= K.ZPILE_HOLD) endZPile(o); }
+        break;
+      }
       case 'redsquad': {
         o.hw = 0.22 * Math.sqrt(Math.min(o.count, 60)) + 0.3;
         const dz = o.z - g.dist;
@@ -1640,6 +1828,7 @@ function updateZombies(dt) {
     if (zb.dead) continue;
     if (zb.active) alive++;
     zb.flash = Math.max(0, zb.flash - dt);
+    if (zb.hopT > 0) { zb.hopT -= dt; const k = 1 - Math.max(0, zb.hopT) / 0.35; zb.hy = zb.hop0 * (1 - k) + 0.6 * Math.sin(Math.PI * k); } else if (zb.hy) zb.hy = 0;
     const dz = zb.z - g.dist;
     if (zb.elite) { updateElite(zb, dt, dz); continue; }
     if (!zb.active && dz < 44) zb.active = true;
@@ -1868,6 +2057,7 @@ function startArena() {
   const ttk = Tb(n) * tier * A.hp * Zf(n) * creep(n) * O * (g.army ? K.HERO_HP : 1);
   // the same overshoot hardens the red army, so a snowballed squad still has to clash
   if (g.army) g.army.unitHP *= O;
+  if (g.army && g.army.pile) g.army.pile.tierHP *= O;
   // the boss is already taking fire during its walk-in, so that time is added on top of the fight
   const hp = E1 * (K.U * ttk + K.ENTER_T);
   const scale = cfg.tier === 'big' ? 1.25 : cfg.tier === 'war' ? 1.35 : 1;
@@ -2114,15 +2304,47 @@ function startCharge() {
   for (const zb of g.zombies) if (!zb.dead) zb.dead = true;
   const vs = K.VOLLEY_SEC + (WEAPONS[g.weapon.id].short ? K.VOLLEY_SHORT : 0);
   g.clash = { st: 'volley' };
-  const v = Math.max(0, Math.min(ar.count - armyFloor(ar), Math.floor(vs * squadDPS() / ar.unitHP)));
+  // the volley knocks the towers down over VOLLEY_T; its kills pay the average armour of the falling front
+  const P = ar.pile, Dv = vs * squadDPS();
+  let Av = 1, drops = 0, hs = 0;
+  if (P) {
+    const pw = WEAPONS[g.weapon.id].pile || PILE_DEF, strip = K.PILE_VOLLEY_STRIP * pw[1] * Dv / (P.nc * P.tierHP);
+    let As = 0;
+    for (let c = 0; c < P.nc; c++) {
+      P.h0[c] = P.h[c]; P.hT[c] = Math.max(1, P.h[c] - strip);
+      As += 1 + pw[0] * K.PILE_ARMOR * ((P.h0[c] + P.hT[c]) / 2 - 1);
+      hs += P.h[c];
+      if (Math.floor(P.h0[c]) - Math.floor(P.hT[c]) >= 1) drops++;
+    }
+    Av = As / P.nc;
+  }
+  const v = Math.max(0, Math.min(ar.count - armyFloor(ar), Math.floor(Dv / (ar.unitHP * Av))));
   g.clash = { st: 'volley', t: 0, v, vDone: 0, m0: 0, mDone: 0, beams: [], beamT: 0 };
   const E1 = g.M.E(1);
   g.stats.charge = { men: g.count, army: ar.count, volley: v, r: +(squadDPS() / E1).toFixed(2), pre: +((ar.dmg || 0) / E1).toFixed(1) };
+  if (P) {
+    g.stats.charge.pile = { T: P.T, h0: +(hs / P.nc).toFixed(2), top: P.top, Av: +Av.toFixed(3), Apre: +(P.eff ? P.raw / P.eff : 1).toFixed(3), aexp: +pileAexp(g.stage).toFixed(3) };
+    P.raw += Dv; P.eff += Dv / Av;
+    g.stats.charge.pile.A = +(P.raw / P.eff).toFixed(3);
+    if (drops >= 3) floatText(0, 1.8 + K.PILE_DY * (P.top - 1), ar.z, '탑 붕괴!', '#5cc8ff', 1.2, false);
+  }
   ar.dmg = (ar.dmg || 0) + vs * squadDPS();
   caption('CHARGE FORWARD!', '전군 돌격!');
   g.shake = Math.max(g.shake, 10);
   sfx('charge');
   vibrate(30);
+}
+// the lines meet: the crest crashes down onto the squad (visual; the melee stays 1:1)
+function pileCrash(ar) {
+  const g = G, P = ar.pile;
+  let top = 1, sum = 0;
+  for (let c = 0; c < P.nc; c++) { sum += P.h[c]; top = Math.max(top, Math.floor(P.h[c])); }
+  for (let k = top; k >= 2; k--) for (let c = 0; c < P.nc; c++) if (Math.floor(P.h[c]) >= k) pileTumble(P.fx, colX(c, P.nc), K.PILE_DY * (k - 1), ar.z, rand(-7, -4), RED);
+  P.h.fill(1); P.top = 1;
+  g.shake = Math.max(g.shake, 14 + top);
+  if (top >= 2) floatText(0, 1.6 + K.PILE_DY * (top - 1), ar.z - 1, '와르르!', '#ff6d7c', 1.3, false);
+  const pc = g.stats.charge && g.stats.charge.pile;
+  if (pc) { pc.crest = +(sum / P.nc).toFixed(2); pc.crestTop = top; pc.A = +(P.raw / P.eff).toFixed(3); }
 }
 function armyDown() {
   const g = G, ar = g.army;
@@ -2142,15 +2364,22 @@ function updateClash(dt) {
   for (let i = c.beams.length - 1; i >= 0; i--) if ((c.beams[i].life -= dt) <= 0) c.beams.splice(i, 1);
   if (c.st === 'volley') {
     const want = Math.round(c.v * clamp(c.t / K.VOLLEY_T, 0, 1));
-    const k = Math.min(ar.count, want - c.vDone);
+    const k = Math.min(ar.count - armyFloor(ar), want - c.vDone);
     if (k > 0) { c.vDone += k; ar.count -= k; g.kills += k; ar.shown = ar.count; }
     if (c.t < K.VOLLEY_T) {
       c.beamT -= dt;
       for (; c.beamT <= 0; c.beamT += 0.035) {
         const d = g.dims, f = FORM[(Math.random() * d.m) | 0];
-        const tx = rand(-ROAD + 0.2, ROAD - 0.2), tz = ar.z + rand(0, 2.5);
-        c.beams.push({ x0: g.x + f.x * d.kx, z0: g.dist + f.z * d.kz, x1: tx, z1: tz, life: 0.16, seed: Math.random() * 1000 });
-        if (Math.random() < 0.5) burst(tx, 0.5, tz, 3, ['#bff6ff', '#5cc8ff', '#ffffff'], 3, 0.1);
+        let tx, tz, ty = 0.5;
+        if (ar.pile) {
+          // bolts strike the tower tops
+          const P = ar.pile, cc = pickCol(P);
+          tx = colX(cc, P.nc) + rand(-0.15, 0.15);
+          ty = K.PILE_DY * (P.h[cc] - 1) + 0.6;
+          tz = ar.z + K.PILE_LEAN * (P.h[cc] - 1);
+        } else { tx = rand(-ROAD + 0.2, ROAD - 0.2); tz = ar.z + rand(0, 2.5); }
+        c.beams.push({ x0: g.x + f.x * d.kx, z0: g.dist + f.z * d.kz, x1: tx, z1: tz, y1: ar.pile ? ty : undefined, life: 0.16, seed: Math.random() * 1000 });
+        if (Math.random() < 0.5) burst(tx, ty, tz, 3, ['#bff6ff', '#5cc8ff', '#ffffff'], 3, 0.1);
       }
       if (Math.random() < dt * 12) sfx('zap');
     }
@@ -2160,7 +2389,7 @@ function updateClash(dt) {
     ar.z -= K.ARMY_ADV * dt;
     g.dist += K.SQUAD_ADV * dt;
     ar.walk = (ar.walk || 0) + dt;
-    if (ar.z - g.dist <= g.dims.rz + 1.3) { c.st = 'melee'; c.t = 0; c.m0 = Math.min(g.count, ar.count); c.T = K.CLASH_T * clamp(Math.sqrt(c.m0 / 200), 0.5, 1); g.stats.charge.melee = [g.count, ar.count]; g.stats.charge.fire = +(ar.dmg / g.M.E(1)).toFixed(1); g.shake = 14; sfx('clash'); vibrate(50); }
+    if (ar.z - g.dist <= g.dims.rz + 1.3) { c.st = 'melee'; c.t = 0; c.m0 = Math.min(g.count, ar.count); c.T = K.CLASH_T * clamp(Math.sqrt(c.m0 / 200), 0.5, 1); g.stats.charge.melee = [g.count, ar.count]; g.stats.charge.fire = +(ar.dmg / g.M.E(1)).toFixed(1); g.shake = 14; sfx('clash'); vibrate(50); if (ar.pile) pileCrash(ar); }
   } else if (c.st === 'melee') {
     ar.z = Math.max(g.dist + g.dims.rz + 0.9, ar.z - 0.6 * dt);
     const want = Math.round(c.m0 * clamp(c.t / c.T, 0, 1));
@@ -2250,6 +2479,43 @@ function updateBoss(dt) {
   }
 }
 
+// ---------- pile-up front ----------
+// the rear presses forward once the squad is in sight: every column climbs toward its cap, the centre fastest
+function updateArmyPile(dt) {
+  const g = G, ar = g.army;
+  if (g.phase !== 'clash') ar.flash = Math.max(0, ar.flash - dt);
+  const P = ar.pile;
+  if (!P) return;
+  const st = g.clash ? g.clash.st : null;
+  let press = 0;
+  if (g.phase === 'run' || g.phase === 'boss') press = P.woke || ar.z - g.dist <= K.PILE_SEE ? 1 : 0;
+  else if (g.phase === 'clash' && st === 'advance') press = K.PILE_SURGE;
+  if (press && !P.woke) {
+    P.woke = true;
+    if (!save.seen.pile) { save.seen.pile = 1; persist(); banner('적이 쌓여요!', '높이 쌓일수록 단단해져요 · 장군을 빨리 쓰러뜨리세요', 2.2, 1); }
+    else callout('적군이 몰려온다!', 1.2);
+  }
+  P.press = press;
+  const cap = capEff(ar);
+  let top = 1, cTop = 6, climb = false;
+  for (let c = 0; c < P.nc; c++) {
+    if (g.phase === 'clash' && st === 'volley') {
+      const want = P.h0[c] + (P.hT[c] - P.h0[c]) * clamp(g.clash.t / K.VOLLEY_T, 0, 1);
+      if (P.h[c] > want) pileStrip(ar, c, P.h[c] - want, 1);
+    } else if (press && P.h[c] < cap) P.h[c] = Math.min(cap, P.h[c] + press * P.b[c] * (cap + K.PILE_OVER - P.h[c]) / K.PILE_TAU * dt);
+    if (P.h[c] > cap) pileStrip(ar, c, P.h[c] - cap, 1);
+    if (press && P.h[c] < cap - 0.02) climb = true;
+    if (Math.floor(P.h[c]) > top) { top = Math.floor(P.h[c]); cTop = c; }
+  }
+  P.top = top; P.climb = climb;
+  if (press && top > P.peak) {
+    P.peak = top;
+    floatText(colX(cTop, P.nc), K.PILE_DY * (top - 1) + 1.4, ar.z, top >= P.T ? `최대 ${P.T}층!` : `${top}층!`, '#ff6d7c', 1.0 + 0.1 * top, false);
+    sfx('stomp'); g.shake = Math.max(g.shake, 3);
+  }
+  stepTumblers(P.fx, dt);
+}
+
 // ---------- main update ----------
 function update(dt) {
   const g = G;
@@ -2287,6 +2553,7 @@ function update(dt) {
   else if (g.tokens.length) g.tokens.length = 0;
   updateZombies(dt);
   updateObjs(dt);
+  if (g.army && g.army.count > 0) updateArmyPile(dt);
   updateZones(dt);
   if (g.phase === 'boss') updateBoss(dt);
   else if (g.phase === 'clash') updateClash(dt);
@@ -2714,7 +2981,7 @@ function drawSoldier(x, y, groundY, u, i, t, k, moving, muz, wid, danger) {
   const key = wid + (danger ? 'd' : '') + ph + (QLOW || air ? 'n' : '') + h + '@' + DPR;
   let s = SPR.get(key);
   if (!s) {
-    if (SPR.size > 400) SPR.clear();
+    if (SPR.size > 600) SPR.clear();
     const ox = Math.ceil(h * 0.4 + 3), oy = Math.ceil(h * 1.22 + 3);
     const c = document.createElement('canvas');
     c.width = Math.ceil((ox * 2) * DPR); c.height = Math.ceil((oy + h * 0.12 + 3) * DPR);
@@ -2953,8 +3220,9 @@ function drawBoss(bs, p, t) {
   }
   if (bs.flash > 0) { ctx.fillStyle = 'rgba(255,255,255,.4)'; torso(); ctx.fill(); }
   if (bs.rage) { ctx.fillStyle = 'rgba(255,40,40,.22)'; torso(); ctx.fill(); }
-  if (bs.state === 'windup' || bs.state === 'charge' || (bs.state === 'shielded' && bs.poseUntil)) label('!', x, hy - h * 0.28, Math.max(16, h * 0.14), '#ffc21a', '#1c1a16');
-  if (bs.state === 'stagger' || bs.state === 'stun') label('★', x + Math.sin(t * 6) * w * 0.2, hy - h * 0.2, Math.max(12, h * 0.08), '#ffc21a', '#1c1a16');
+  // attack and stun markers are drawn in the overlay pass so the army count never covers them
+  if (bs.state === 'windup' || bs.state === 'charge' || (bs.state === 'shielded' && bs.poseUntil)) bs.mark = ['!', x, hy - h * 0.28, Math.max(16, h * 0.14), ctx.globalAlpha];
+  else if (bs.state === 'stagger' || bs.state === 'stun') bs.mark = ['★', x + Math.sin(t * 6) * w * 0.2, hy - h * 0.2, Math.max(12, h * 0.08), ctx.globalAlpha];
   if (bs.shield) {
     ctx.globalAlpha = 0.28 + 0.08 * Math.sin(t * 5);
     ctx.fillStyle = '#8fd8ff'; oval(x, y - h * 0.5, w * 1.05, h * 0.62); ctx.fill();
@@ -2975,6 +3243,7 @@ function drawObj(o, p, t) {
   else if (o.type === 'saw') drawSaw(o, t);
   else if (o.type === 'pylon') drawPylon(o, p, t);
   else if (o.type === 'redsquad') drawRedSquad(o, p, t);
+  else if (o.type === 'zpile') drawZPile(o, p, t);
   ctx.globalAlpha = 1;
 }
 function hpBar(x, y, w, h, f, col) {
@@ -3058,7 +3327,7 @@ function drawWallBags(o) {
     const p = P(bx, 0, o.z);
     if (!p) continue;
     const u = p.s, bw = 0.78 * u, bh = 0.34 * u;
-    for (let r = 0; r < 3; r++) {
+    for (let r = 0; r < (o.rows || 3); r++) {
       ctx.fillStyle = (r + i) & 1 ? '#bba16b' : '#c9b07a';
       rr(p.x - bw / 2 + (r & 1 ? bw * 0.25 : 0), p.y - (r + 1) * bh * 0.95, bw, bh, bh * 0.45); ctx.fill();
     }
@@ -3156,11 +3425,15 @@ function drawEntities(t) {
   list.sort((a, b) => b.z - a.z);
   for (const e of list) {
     if (e.k === 0) drawGate(e.o);
-    else if (e.k === 4) drawSquad(t);
+    else if (e.k === 4) {
+      drawSquad(t);
+      const A = g.army;
+      if (A && A.pile && A.count > 0 && A.pile.fx.length) { const zNear = g.dist + g.dims.rz, ff = A.pile.fx.filter(f => f.z < zNear); if (ff.length) drawTumblers(ff, pileH(A), false); }
+    }
     else if (e.k === 5) drawToken(e.o);
     else if (e.k === 6) drawArmy(e.o, t);
     else {
-      const p = P(e.o.x, 0, e.z);
+      const p = P(e.o.x, e.k === 1 ? (e.o.hy || 0) : 0, e.z);
       if (!p) continue;
       if (e.k === 1) drawZombie(e.o, p, t);
       else if (e.k === 2) drawObj(e.o, p, t);
@@ -3256,7 +3529,12 @@ function render() {
   drawGround();
   drawProps();
   drawZones(0);
+  if (g.army) g.army.lbl = null;
+  if (g.boss) g.boss.mark = null;
   drawEntities(g.t);
+  drawArmyLabel();
+  const bm = g.boss && g.boss.mark;
+  if (bm) { ctx.globalAlpha = bm[4]; label(bm[0], bm[1], bm[2], bm[3], '#ffc21a', '#1c1a16'); ctx.globalAlpha = 1; }
   drawZones(1);
   drawBullets();
   drawBeams();
@@ -3408,45 +3686,75 @@ function drawBanner(x, y, u, k) {
 }
 
 // ---------- red soldiers (enemy infantry, facing the camera) ----------
-function redSprite(h, ph, big) {
-  const key = 'red' + (big ? 'B' : '') + ph + (QLOW ? 'n' : '') + h + '@' + DPR;
+// pose '' marches, 'T' tops a tower (no shadow), 'C' crouches and braces with raised arms
+function redSprite(h, ph, big, pose = '') {
+  const key = 'red' + pose + (big ? 'B' : '') + ph + (QLOW ? 'n' : '') + h + '@' + DPR;
   let s = SPR.get(key);
   if (!s) {
-    if (SPR.size > 400) SPR.clear();
+    if (SPR.size > 600) SPR.clear();
     const ox = Math.ceil(h * 0.45 + 3), oy = Math.ceil(h * 1.3 + 3);
     const c = document.createElement('canvas');
     c.width = Math.ceil(ox * 2 * DPR); c.height = Math.ceil((oy + h * 0.12 + 3) * DPR);
     const main = ctx;
     ctx = c.getContext('2d');
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    drawRedRaw(ox, oy, h, ph, big, !QLOW);
+    drawRedRaw(ox, oy, h, ph, big, !QLOW, pose);
     ctx = main;
     s = { c, ox, oy, w: c.width / DPR, h: c.height / DPR };
     SPR.set(key, s);
   }
   return s;
 }
-function drawRedRaw(x, y, h, st, big, shadow) {
-  const w = h * 0.46;
-  if (shadow) { ctx.fillStyle = 'rgba(20,10,10,.25)'; oval(x, y, w * 0.62, w * 0.2); ctx.fill(); }
-  const l1 = h * 0.34 * (1 - 0.3 * Math.max(0, st)), l2 = h * 0.34 * (1 - 0.3 * Math.max(0, -st));
+function drawRedRaw(x, y, h, st, big, shadow, pose = '') {
+  const w = h * 0.46, C = pose === 'C';
+  if (shadow && !pose) { ctx.fillStyle = 'rgba(20,10,10,.25)'; oval(x, y, w * 0.62, w * 0.2); ctx.fill(); }
+  const l1 = C ? h * 0.22 : h * 0.34 * (1 - 0.3 * Math.max(0, st)), l2 = C ? h * 0.22 : h * 0.34 * (1 - 0.3 * Math.max(0, -st));
   ctx.fillStyle = '#4a0e14';
   ctx.fillRect(x - w * 0.34, y - l1, w * 0.27, l1);
   ctx.fillRect(x + w * 0.07, y - l2, w * 0.27, l2);
+  if (C) y += h * 0.12;
   ctx.fillStyle = '#e0282e'; rr(x - w * 0.5, y - h * 0.8, w, h * 0.48, w * 0.22); ctx.fill();
   ctx.fillStyle = '#a3141c'; ctx.fillRect(x - w * 0.62, y - h * 0.74, w * 0.16, h * 0.3); ctx.fillRect(x + w * 0.46, y - h * 0.74, w * 0.16, h * 0.3);
   ctx.fillStyle = '#ffd23a'; ctx.fillRect(x - w * 0.5, y - h * 0.5, w, h * 0.05);
-  // spear on the right, round shield on the left
-  ctx.fillStyle = '#6b4a2a'; ctx.fillRect(x + w * 0.5, y - h * 1.3, w * 0.09, h * 1.0);
-  ctx.fillStyle = '#d8dde3'; ctx.beginPath(); ctx.moveTo(x + w * 0.545, y - h * 1.45); ctx.lineTo(x + w * 0.63, y - h * 1.28); ctx.lineTo(x + w * 0.46, y - h * 1.28); ctx.fill();
+  if (C) {
+    // arms up, bracing the soldier above
+    ctx.fillStyle = '#a3141c'; ctx.fillRect(x - w * 0.62, y - h * 1.16, w * 0.16, h * 0.44); ctx.fillRect(x + w * 0.46, y - h * 1.16, w * 0.16, h * 0.44);
+    ctx.fillStyle = '#f1c7a0'; circle(x - w * 0.54, y - h * 1.16, w * 0.1); ctx.fill(); circle(x + w * 0.54, y - h * 1.16, w * 0.1); ctx.fill();
+  } else {
+    // spear on the right, round shield on the left
+    ctx.fillStyle = '#6b4a2a'; ctx.fillRect(x + w * 0.5, y - h * 1.3, w * 0.09, h * 1.0);
+    ctx.fillStyle = '#d8dde3'; ctx.beginPath(); ctx.moveTo(x + w * 0.545, y - h * 1.45); ctx.lineTo(x + w * 0.63, y - h * 1.28); ctx.lineTo(x + w * 0.46, y - h * 1.28); ctx.fill();
+  }
   if (big) { ctx.fillStyle = '#8a9099'; rr(x - w * 0.4, y - h * 0.78, w * 0.8, h * 0.26, w * 0.1); ctx.fill(); }
   ctx.fillStyle = '#f1c7a0'; circle(x, y - h * 0.88, w * 0.32); ctx.fill();
   ctx.fillStyle = '#2a1a1a'; ctx.fillRect(x - w * 0.16, y - h * 0.9, w * 0.08, w * 0.08); ctx.fillRect(x + w * 0.08, y - h * 0.9, w * 0.08, w * 0.08);
   ctx.fillStyle = '#9aa0a8'; ctx.beginPath(); ctx.arc(x, y - h * 0.92, w * 0.36, Math.PI, TAU); ctx.fill();
   ctx.fillRect(x - w * 0.4, y - h * 0.93, w * 0.8, h * 0.035);
   ctx.fillStyle = '#e0282e'; oval(x, y - h * 1.1, w * 0.1, h * 0.09); ctx.fill();
-  ctx.fillStyle = '#b8323a'; circle(x - w * 0.55, y - h * 0.6, w * 0.26); ctx.fill();
-  ctx.fillStyle = '#ffd23a'; circle(x - w * 0.55, y - h * 0.6, w * 0.09); ctx.fill();
+  if (!C) {
+    ctx.fillStyle = '#b8323a'; circle(x - w * 0.55, y - h * 0.6, w * 0.26); ctx.fill();
+    ctx.fillStyle = '#ffd23a'; circle(x - w * 0.55, y - h * 0.6, w * 0.09); ctx.fill();
+  }
+}
+function drawPileMan(x, y, h, ph, plated, pose) {
+  if (h < 2) return;
+  if (h < 5 || QLOW) {
+    const w = h * 0.46;
+    ctx.fillStyle = plated ? '#b0262c' : '#e0282e'; ctx.fillRect(x - w * 0.5, y - h * 0.8, w, h * 0.8);
+    ctx.fillStyle = '#9aa0a8'; ctx.fillRect(x - w * 0.36, y - h * 1.08, w * 0.72, h * 0.3);
+    return;
+  }
+  const s = redSprite(h, ph, plated, pose);
+  ctx.drawImage(s.c, x - s.ox, y - s.oy, s.w, s.h);
+}
+// a zombie with both arms reaching up the wall (World War Z pile)
+function drawZomBody(x, y, h, shirt) {
+  if (h < 2) return;
+  const w = h * 0.46;
+  ctx.fillStyle = SHIRTS[shirt]; ctx.fillRect(x - w * 0.45, y - h * 0.8, w * 0.9, h * 0.8);
+  ctx.fillStyle = '#8fbf5a'; ctx.fillRect(x - w * 0.6, y - h * 1.22, w * 0.18, h * 0.5); ctx.fillRect(x + w * 0.42, y - h * 1.22, w * 0.18, h * 0.5);
+  circle(x, y - h * 0.9, w * 0.38); ctx.fill();
+  ctx.fillStyle = '#ff3b30'; ctx.fillRect(x - w * 0.2, y - h * 0.95, w * 0.4, Math.max(1, h * 0.05));
 }
 function drawRedman(x, y, u, t, i, moving, big) {
   const h = Math.round(0.66 * u * (big ? 1.4 : 1) * 2) / 2;
@@ -3513,17 +3821,20 @@ function bigNum(txt, x, y, fs, under) {
 }
 
 // ---------- the red army block and red squads ----------
-const ARMY_COLS = 13;
+// the red army is drawn a size up so its stacked tiers read from the far end of the bridge
+const ARMY_SCALE = 1.2;
 function drawArmy(ar, t) {
   const g = G;
   if (ar.count <= 0) return;
   const zf = ar.z - camZ;
   if (zf < 0.6 || zf > FAR) return;
-  const moving = g.clash && g.clash.st === 'advance';
+  const PL = ar.pile, top = PL ? PL.top : 1;
+  const moving = g.clash && (g.clash.st === 'advance' || g.clash.st === 'melee');
   const cols = ARMY_COLS, rows = Math.ceil(ar.count / cols), gap = 0.42;
   const depth = Math.min(rows * gap, 6 + Math.sqrt(rows) * 0.9);
-  const sprRows = Math.min(rows, QLOW ? 3 : 7);
-  // carpet impostor for the deep ranks
+  // tall piles hide the ranks behind them, so the sprite budget moves from hidden ranks to visible tiers
+  const sprRows = Math.min(rows, PL ? Math.max(QLOW ? 1 : 2, (QLOW ? 3 : 7) - (top - 1)) : (QLOW ? 3 : 7));
+  // carpet impostor for the deep ranks; while the rear presses forward its stripes flow toward the front
   if (rows > sprRows) {
     const z0 = ar.z + sprRows * gap, z1 = ar.z + depth;
     ctx.globalAlpha = fade(z1 - camZ);
@@ -3533,39 +3844,157 @@ function drawArmy(ar, t) {
     if (a && b && c && d && a0 && b0) {
       quad(d, c, b, a); ctx.fill();
       ctx.fillStyle = '#c21f26'; quad(a, b, b0, a0); ctx.fill();
-      const nr = Math.min(28, Math.ceil((z1 - z0) / gap));
+      const nr = Math.min(28, Math.ceil((z1 - z0) / gap)), step = (z1 - z0) / nr;
+      const sv = PL && PL.press && !reduceMotion ? (PL.press > 1 ? 6 : 1.5) : 0;
+      const ph = sv ? t * sv / step : 0, ip = Math.floor(ph), off = (ph - ip) * step;
       for (let r = nr; r >= 0; r--) {
-        const z = z0 + (z1 - z0) * r / nr;
+        const z = z0 + step * r - off;
+        if (z < z0) continue;
         const l = P(-ROAD + 0.2, 0.72, z), rt = P(ROAD - 0.2, 0.72, z);
         if (!l || !rt) continue;
-        const sz = Math.max(1.5, l.s * 0.14);
-        ctx.fillStyle = r & 1 ? '#9aa0a8' : '#b3b9c0';
+        const sz = Math.max(1.5, l.s * 0.14), par = (r + ip) & 1;
+        ctx.fillStyle = par ? '#9aa0a8' : '#b3b9c0';
         const n = Math.max(4, Math.min(cols, Math.round((rt.x - l.x) / (sz * 2.2))));
-        for (let i = 0; i < n; i++) ctx.fillRect(l.x + (rt.x - l.x) * (i + (r & 1 ? 0.75 : 0.25)) / n - sz / 2, l.y - sz / 2, sz, sz * 0.8);
+        for (let i = 0; i < n; i++) ctx.fillRect(l.x + (rt.x - l.x) * (i + (par ? 0.75 : 0.25)) / n - sz / 2, l.y - sz / 2, sz, sz * 0.8);
+      }
+      // runners: the rear pours into the lowest column (the dent you are shooting)
+      if (PL && PL.press && !QLOW && !reduceMotion) {
+        let lo = 0;
+        for (let k = 1; k < PL.nc; k++) if (PL.h[k] < PL.h[lo]) lo = k;
+        const nR = Math.min(K.PILE_RUNNERS, Math.ceil(ar.count / 150)), sp = PL.press > 1 ? 1.2 : 0.4;
+        for (let i = 0; i < nR; i++) {
+          const f = (t * sp + 0.37 * i) % 1;
+          const q = P(colX(lo, PL.nc) + ((i % 3) - 1) * 0.45, 0.45, lerp(z1, z0, f));
+          if (q) drawRedman(q.x, q.y, q.s * ARMY_SCALE, t, i, true, false);
+        }
       }
     }
     ctx.globalAlpha = 1;
   }
-  // front ranks as real sprites, back to front
+  // front ranks as real sprites, back to front; rank 0 sits on the pile columns
   const front = Math.min(ar.count, sprRows * cols);
-  for (let r = Math.min(sprRows, rows) - 1; r >= 0; r--) {
+  const row = r => {
     const inRow = Math.min(cols, front - r * cols);
-    if (inRow <= 0) continue;
+    if (inRow <= 0) return;
     for (let i = 0; i < inRow; i++) {
-      const fx = -ROAD + 0.35 + (2 * ROAD - 0.7) * (i + (r & 1 ? 0.5 : 0) + (cols - inRow) / 2) / cols;
+      const fx = -ROAD + 0.35 + (2 * ROAD - 0.7) * (i + (r & 1 ? 0 : 0.5) + (cols - inRow) / 2) / cols;
       const p = P(fx, 0, ar.z + r * gap);
       if (!p) continue;
       ctx.globalAlpha = fade(p.dz);
-      drawRedman(p.x, p.y, p.s, t, r * cols + i, moving || (g.clash && g.clash.st === 'melee'), false);
+      drawRedman(p.x, p.y, p.s * ARMY_SCALE, t, r * cols + i, moving, false);
+    }
+  };
+  for (let r = Math.min(sprRows, rows) - 1; r >= 1; r--) row(r);
+  const fx = PL && PL.fx.length ? PL.fx : null, zNear = g.dist + g.dims.rz, zBack = ar.z + Math.max(0, K.PILE_LEAN) * (top - 1) + 0.15;
+  if (fx) { const fb = fx.filter(f => f.z > zBack); if (fb.length) drawTumblers(fb, pileH(ar), false); }
+  if (PL) drawPile(ar, PL, t);
+  row(0);
+  ctx.globalAlpha = 1;
+  // bodies thrown onto the squad are drawn after it (drawEntities); the rest fall here
+  if (fx) { const fm = fx.filter(f => f.z <= zBack && f.z >= zNear); if (fm.length) drawTumblers(fm, pileH(ar), false); }
+  if (ar.flash > 0) {
+    const a = P(-ROAD, 1.0 + K.PILE_DY * (top - 1), ar.z), b = P(ROAD, 0, ar.z);
+    if (a && b) { ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y); }
+  }
+  // the count is drawn in an overlay pass so the giant never hides it
+  const q = P(0, PL ? Math.max(2.1, 0.66 * ARMY_SCALE + K.PILE_DY * (top - 1) + 0.9) : 2.1, ar.z + depth * 0.4);
+  if (q && zf < FAR - 4) ar.lbl = { x: q.x, y: q.y, fs: clamp(q.s * 0.75, 16, 54), top, climb: !!(PL && PL.climb) };
+}
+const pileH = ar => { const p = P(0, 0, ar.z); return p ? Math.round(0.66 * ARMY_SCALE * p.s) : 0; };
+// tiers 2..top of the 13 front columns; tier 1 is rank 0 itself
+function drawPile(ar, PL, t) {
+  const p0 = P(0, 0, ar.z);
+  if (!p0) return;
+  const hp = Math.round(0.66 * ARMY_SCALE * p0.s);
+  const lean = PL.press > 1 ? -0.8 * K.PILE_LEAN : K.PILE_LEAN;
+  const cap = capEff(ar), tick = Math.floor(t * 3);
+  ctx.globalAlpha = fade(p0.dz);
+  // climbers: the next soldier rising up the back of each column, head popping over the top
+  for (let c = 0; c < PL.nc; c++) {
+    if (QLOW && (c < 4 || c > 8)) continue;
+    const h = PL.h[c], fl = Math.floor(h), fr = h - fl;
+    if (fr <= 0.15 || h >= cap) continue;
+    const q = P(colX(c, PL.nc), K.PILE_DY * (fl + fr - 1), ar.z + lean * fl + 0.5 * (1 - fr));
+    if (q) drawPileMan(q.x, q.y, hp, 0, fl + 1 >= 3, 'C');
+  }
+  const top = PL.top;
+  for (let kk = 0; kk <= top - 2; kk++) {
+    const k = lean >= 0 ? top - kk : 2 + kk;
+    for (let c = 0; c < PL.nc; c++) {
+      const fl = Math.floor(PL.h[c]);
+      if (fl < k) continue;
+      const q = P(colX(c, PL.nc) + (k % 2 === 0 ? 0.2 * Math.sign(6 - c) : 0), K.PILE_DY * (k - 1), ar.z + lean * (k - 1));
+      if (!q) continue;
+      const ph = PL.press > 1 ? 0 : ((7 * c + k + tick) % 3) - 1;
+      drawPileMan(q.x, q.y, hp, ph, k >= 3, k === fl ? 'T' : 'C');
     }
   }
   ctx.globalAlpha = 1;
-  if (ar.flash > 0) {
-    const a = P(-ROAD, 1.0, ar.z), b = P(ROAD, 0, ar.z);
-    if (a && b) { ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y); }
+}
+// soldiers knocked off a tower, spinning as they fall
+function drawTumblers(fx, hp, zom, sc = 0.66 * ARMY_SCALE) {
+  for (const f of fx) {
+    const q = P(f.x, f.y, f.z);
+    if (!q) continue;
+    ctx.globalAlpha = clamp(f.life * 2, 0, 1);
+    const h = Math.max(2, sc * q.s);
+    if (zom || QLOW || hp < 5) {
+      const w = h * 0.46;
+      ctx.fillStyle = zom ? '#7a5c8f' : '#e0282e'; ctx.fillRect(q.x - w * 0.5, q.y - h * 0.8, w, h * 0.8);
+      ctx.fillStyle = zom ? '#8fbf5a' : '#9aa0a8'; ctx.fillRect(q.x - w * 0.36, q.y - h * 1.08, w * 0.72, h * 0.3);
+      continue;
+    }
+    const s = redSprite(hp, 0, false, 'C'), k = h / hp;
+    ctx.save(); ctx.translate(q.x, q.y - h * 0.5); ctx.rotate(f.rot); ctx.scale(k, k);
+    ctx.drawImage(s.c, -s.ox, -s.oy + hp * 0.5, s.w, s.h);
+    ctx.restore();
   }
-  const q = P(0, 2.1, ar.z + depth * 0.4);
-  if (q && zf < FAR - 4) bigNum(fmt(ar.count), q.x, q.y, clamp(q.s * 0.75, 16, 54), '#e0282e');
+  ctx.globalAlpha = 1;
+}
+function drawArmyLabel() {
+  const ar = G.army, L = ar && ar.lbl;
+  if (!L || ar.count <= 0) return;
+  bigNum(fmt(ar.count), L.x, L.y, L.fs, '#e0282e');
+  if (L.top >= 2) pill(`${L.top}층${L.climb ? ' ▲' : ''}`, L.x, L.y + L.fs * 0.95, clamp(L.fs * 0.42, 11, 20), 'rgba(122,26,26,.92)', '#ffd34d');
+}
+// zombie tower: queue behind the wall, climbers, standing tiers leaning on the wall, spill warnings
+function drawZPile(o, p, t) {
+  const pz = P(0, 0, o.z);
+  if (!pz) return;
+  const castle = castleOn(), hz = Math.round(0.72 * pz.s), hr = Math.round(0.66 * pz.s), tick = Math.floor(t * 3);
+  const body = (x, y, z, k, c, isTop) => {
+    const q = P(x, y, z);
+    if (!q) return;
+    if (castle) drawPileMan(q.x, q.y, hr, ((c + k + tick) % 3) - 1, k >= 3, isTop ? 'T' : 'C');
+    else drawZomBody(q.x, q.y, hz, (c + k) % SHIRTS.length);
+  };
+  const nq = Math.min(o.queue, QLOW ? 9 : 18);
+  for (let i = nq - 1; i >= 0; i--) body(colX(i % ZCOLS, ZCOLS) + (i >= ZCOLS ? 0.2 : 0), 0, o.z + (i >= ZCOLS ? 1.2 : 0.6), 1, i, false);
+  let top = 0;
+  for (let c = 0; c < ZCOLS; c++) top = Math.max(top, Math.floor(o.tiers[c]));
+  if (o.queue > 0) for (let c = 0; c < ZCOLS; c++) {
+    const fl = Math.floor(o.tiers[c]), fr = o.tiers[c] - fl;
+    if (fr > 0.15) body(colX(c, ZCOLS), K.PILE_DY * (fl + fr - 1), o.z + 0.4 * (1 - fr), fl + 1, c, false);
+  }
+  for (let k = 1; k <= top; k++) for (let c = 0; c < ZCOLS; c++) {
+    const fl = Math.floor(o.tiers[c]);
+    if (fl < k) continue;
+    body(colX(c, ZCOLS) + (k % 2 === 0 ? 0.15 * Math.sign(4 - c) : 0), K.PILE_DY * (k - 1), o.z - 0.12 * (k - 1), k, c, k === fl);
+  }
+  // a full column whose next climber is halfway up is about to spill over
+  if (o.queue > 0 && Math.floor(t * 4) % 2 === 0) for (let c = 0; c < ZCOLS; c++) {
+    const fl = Math.floor(o.tiers[c]);
+    if (fl >= o.Tw && o.tiers[c] - fl > 0.5) { const q = P(colX(c, ZCOLS), K.PILE_DY * fl + 0.8, o.z); if (q) label('▼', q.x, q.y, Math.max(12, q.s * 0.4), '#ff3b30', '#1c1a16'); }
+  }
+  if (o.fx.length) drawTumblers(o.fx, castle ? hr : hz, !castle, castle ? 0.66 : 0.72);
+  if (o.count > 0 && !o.cleared) {
+    const q = P(0, Math.max(o.wall.h, K.PILE_DY * (top - 1) + 0.72) + 1.0, o.z);
+    if (q && p.dz < FAR - 4) {
+      const fs = clamp(q.s * 0.6, 14, 40);
+      bigNum(fmt(o.count), q.x, q.y, fs, castle ? '#e0282e' : '#5fa83a');
+      if (top >= 2) pill(`${top}층`, q.x, q.y + fs * 0.95, clamp(fs * 0.42, 11, 18), 'rgba(28,26,22,.85)', '#ffd34d');
+    }
+  }
 }
 function drawRedSquad(o, p, t) {
   const n = Math.min(o.count, 60);
@@ -3593,7 +4022,7 @@ function drawBeams() {
     const pts = [];
     for (let i = 0; i <= 6; i++) {
       const k = i / 6, j = i && i < 6 ? Math.sin(b.seed + i * 12.9898) * 0.35 : 0;
-      const q = P(lerp(b.x0, b.x1, k) + j, 0.9 + Math.sin(Math.PI * k) * 1.4, lerp(b.z0, b.z1, k));
+      const q = P(lerp(b.x0, b.x1, k) + j, lerp(0.9, b.y1 ?? 0.9, k) + Math.sin(Math.PI * k) * 1.4, lerp(b.z0, b.z1, k));
       if (q) pts.push(q);
     }
     if (pts.length < 2) continue;
@@ -3737,8 +4166,9 @@ function renderMenu() {
   $('mTier').textContent = tierTag(n) ? '· ' + tierTag(n) : '';
   $('mCoins').textContent = fmt(save.coins);
   const intros = Object.keys(SEGDEF).filter(k => k !== 'wave' && k !== 'split' && SEGDEF[k].intro <= n && !save.seen['seg_' + k]);
-  const armyN = stageKind(n) === 'army' ? (G && G.stage === n && G.army ? G.army.max : pretty(K.ARMY_RATIO * makeModel(n).C)) : 0;
-  $('mBrief').textContent = (armyN ? `결전: 적군 ${fmt(armyN)} · ${ARCH.giant.name}` : `보스: ${ARCH[bossFor(n)].name}`) + (intros.length ? ` · 새 기믹: ${intros.map(k => SEGNAME[k]).join(', ')}` : n === 2 ? ' · 무기 상자 등장' : '');
+  const armyN = stageKind(n) === 'army' ? (G && G.stage === n && G.army ? G.army.max : pretty(armyRatio(n) * makeModel(n).C * armySoft(n))) : 0;
+  const pT = armyN ? pileT(n) : 1;
+  $('mBrief').textContent = (armyN ? `결전: 적군 ${fmt(armyN)}${pT > 1 ? ` · 최대 ${pT}층` : ''} · ${ARCH.giant.name}` : `보스: ${ARCH[bossFor(n)].name}`) + (intros.length ? ` · 새 기믹: ${intros.map(k => SEGNAME[k]).join(', ')}` : n === 2 ? ' · 무기 상자 등장' : '');
   for (const k of UKEYS) {
     const b = upButtons[k], u = UPS[k], lv = save.up[k];
     const locked = u.unlock && n < u.unlock, maxed = lv >= u.max;
@@ -3804,7 +4234,7 @@ function startPlay() {
   hideLanes();
   for (const k in hudCache) delete hudCache[k];
   $('hCap').hidden = true;
-  if (G.army) showHint(null, `작전 ${n} · 결전! 적군 ${fmt(G.army.max)}명`, '거인 장군을 쓰러뜨리면 전군 돌격');
+  if (G.army) showHint(null, `작전 ${n} · 결전! 적군 ${fmt(G.army.max)}명${G.army.pile ? ` · 최대 ${G.army.pile.T}층` : ''}`, '거인 장군을 쓰러뜨리면 전군 돌격');
   else showHint(null, n === 1 ? '좌우로 드래그해서 이동' : `작전 ${n} · 보스: ${ARCH[G.bossCfg.arch].name}`, n === 1 ? '게이트를 쏘면 숫자가 올라가요' : G.pity ? `지원 사격 +${Math.round(K.PITY_DPS * 100 * G.pity)}%` : '');
 }
 let lanesSeg = null, lanesObj = null;
@@ -3854,7 +4284,8 @@ function showResult(win, coins, prog) {
   let tip;
   if (win) tip = `다음은 작전 ${n + 1}${tierTag(n + 1) ? ' · ' + tierTag(n + 1) : ''}. ${stageKind(n + 1) === 'army' ? '성벽 끝에서 적군이 기다려요.' : '좀비가 조금 더 단단해져요.'}`;
   else if (g.clash && g.army && g.army.count > 0) {
-    tip = `적군이 ${fmt(g.army.count)}명 더 많았어요. 돌격 전에 인원을 늘리고, 화력이 높을수록 번개 일제사격이 더 많이 쓰러뜨려요. 다음 도전엔 지원 사격 +${Math.round(K.PITY_DPS * 100 * (save.fails[n] || 1))}%`;
+    const pc = g.stats.charge && g.stats.charge.pile;
+    tip = (pc && pc.Av >= 1.3 ? `적 전열이 ${pc.top}층까지 쌓였어요. 장군을 빨리 쓰러뜨리면 탑이 낮을 때 돌격해요 · 로켓·레이저는 탑에 강해요.` : `적군이 ${fmt(g.army.count)}명 더 많았어요. 돌격 전에 인원을 늘리고, 화력이 높을수록 번개 일제사격이 더 많이 쓰러뜨려요.`) + ` 다음 도전엔 지원 사격 +${Math.round(K.PITY_DPS * 100 * (save.fails[n] || 1))}%`;
   } else {
     let worst = null, wn = 0;
     for (const [k, v] of Object.entries(g.stats.lossBy)) if (v > wn) { wn = v; worst = k; }
@@ -3891,7 +4322,7 @@ function updateHud() {
   const bs = g.boss, ar = g.army;
   if (g.clash && ar) {
     // after the general falls the bar tracks the red army
-    setText('hBossName', '적군 · 돌격');
+    setText('hBossName', '적군 · 돌격' + (ar.pile && ar.pile.top >= 2 ? ` · ${ar.pile.top}층` : ''));
     $('hBossFill').style.width = (ar.count / ar.max * 100).toFixed(1) + '%';
     setText('hBossHp', fmt(ar.count));
     $('hEnr').hidden = true;
@@ -3901,6 +4332,7 @@ function updateHud() {
     const enr = $('hEnr');
     if (bs.enraged) { enr.hidden = false; setText('hEnr', '광폭화!'); }
     else if (bs.enrWarn) { enr.hidden = false; setText('hEnr', `광폭화 ${Math.max(0, Math.ceil(K.ENR * bs.ttk - bs.fightT))}…`); }
+    else if (ar && ar.pile && ar.pile.top >= 2) { enr.hidden = false; setText('hEnr', `적 전열 ${ar.pile.top}층${ar.pile.climb ? ' ▲' : ''}`); }
     else enr.hidden = true;
   }
 }
@@ -4007,7 +4439,9 @@ window.__toproad = {
   get g() { return G; }, get mode() { return mode; }, save, K, update, startPlay, showMenu, genStage, newRun,
   refEM, refLM, Cn, makeModel, BTK, vis, Tb, Zf, fmt, pretty, laneOf, LANES, WEAPONS, SKILLS, ARCH, UPS, safestLane, squadDPS,
   setLevels(o) { Object.assign(save.up, o); },
+  armyRatio, armySoft, pileT, pileAexp, zWallT, colX, pileCol, capEff, hitArmy, updateArmyPile, startCharge,
   setSeedOffset(k) { K.SEED_OFF = k; },
+  setQuality(low) { QLOW = low; QDRAW = low ? 100 : MAXDRAW; QPART = low ? 300 : K.PART_CAP; },
   set hold(v) { testHold = v; },
 };
 
