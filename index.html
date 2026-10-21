@@ -71,6 +71,12 @@ button:focus-visible{outline:3px solid var(--hazard);outline-offset:2px}
 .banner small{display:block;font-family:var(--body);font-size:13px;margin-top:3px}
 .callout{position:absolute;left:0;right:0;top:138px;text-align:center;font-family:var(--display);font-size:30px;color:#fff;
   text-shadow:0 2px 0 var(--ink),2px 0 0 var(--ink),-2px 0 0 var(--ink),0 -2px 0 var(--ink),0 5px 0 var(--alarm);animation:pop .22s cubic-bezier(.2,1.5,.4,1)}
+.cap{position:absolute;left:0;right:0;top:max(176px,21%);text-align:center;pointer-events:none;animation:capIn .35s cubic-bezier(.2,1.5,.4,1)}
+.cap b{display:block;white-space:nowrap;font-family:var(--display);font-weight:400;font-size:clamp(34px,11vw,52px);line-height:1;color:#fff;letter-spacing:.02em;
+  text-shadow:0 3px 0 var(--ink),3px 0 0 var(--ink),-3px 0 0 var(--ink),0 -3px 0 var(--ink),3px 3px 0 var(--ink),-3px 3px 0 var(--ink),0 7px 0 #2d63f0}
+.cap span{display:inline-block;margin-top:6px;font-family:var(--display);font-size:18px;color:var(--hazard);text-shadow:0 2px 0 var(--ink),2px 0 0 var(--ink),-2px 0 0 var(--ink),0 -2px 0 var(--ink)}
+.cap.red b{text-shadow:0 3px 0 var(--ink),3px 0 0 var(--ink),-3px 0 0 var(--ink),0 -3px 0 var(--ink),3px 3px 0 var(--ink),-3px 3px 0 var(--ink),0 7px 0 var(--alarm)}
+@keyframes capIn{from{transform:scale(1.4);opacity:0}}
 .lanes{position:absolute;left:10px;right:10px;top:84px;display:grid;grid-template-columns:repeat(3,1fr);gap:6px;transition:opacity .35s,transform .35s}
 .lanes div{background:rgba(28,26,22,.86);border-radius:10px;padding:6px 4px 5px;text-align:center;font-size:12px;line-height:1.25;border:2px solid transparent;min-width:0}
 .lanes b{display:block;font-family:var(--display);font-weight:400;font-size:15px;word-break:keep-all;overflow-wrap:anywhere}
@@ -138,7 +144,7 @@ button:focus-visible{outline:3px solid var(--hazard);outline-offset:2px}
 
 @media (max-height:700px){.brand{padding-top:30px}.brand h1{font-size:clamp(48px,16vw,72px)}.brief{display:none}.up-eff{font-size:11px}}
 @media (max-height:520px){.brand h1,.toast,.keys{display:none}.brand{padding-top:12px}}
-@media (prefers-reduced-motion:reduce){.rcard,.banner span,.callout{animation:none}.up.no{animation:none}}
+@media (prefers-reduced-motion:reduce){.rcard,.banner span,.callout,.cap{animation:none}.up.no{animation:none}}
 </style>
 </head>
 <body>
@@ -159,6 +165,7 @@ button:focus-visible{outline:3px solid var(--hazard);outline-offset:2px}
     </div>
     <div class="lanes gone" id="hLanes"><div class="l-stream"></div><div class="l-nest"></div><div class="l-reward"></div></div>
     <div class="callout" id="hSkill" hidden></div>
+    <div class="cap" id="hCap" hidden><b></b><span></span></div>
     <div class="banner" id="hBanner" hidden><span></span></div>
     <div class="weap" id="hWeap"></div>
     <div class="assist" id="hAssist" hidden></div>
@@ -288,6 +295,10 @@ const K = {
   DODGE_BUFF: 0.10, DODGE_T: 3, DODGE_COIN: 0.5,
   COIN_G: 1.05, COIN_BASE: 30, COIN_N: 10, COIN_KILL: 0.1, COIN_VAULT: 6, COIN_NEST: 4, NEST_COIN: 8,
   LOSS_BASE: 0.25, LOSS_PROG: 0.5,
+  // army finale: red army = ARMY_RATIO × expected squad; ARMY_FIRE_T seconds of expected fire should leave ARMY_MARGIN of the squad
+  ARMY_RATIO: 2.4, ARMY_MARGIN: 0.3, ARMY_FIRE_T: 8.5, ARMY_GAP: 5, VOLLEY_SEC: 3, VOLLEY_T: 0.6, CLASH_T: 2, HERO_HP: 0.5,
+  ARMY_ADV: 8, SQUAD_ADV: 4, VOLLEY_SHORT: 2.5, ARMY_PRE_CAP: 0.6, ARMY_REMNANT: 0.12,
+  RED_SQUAD: [0.25, 0.55], RED_SQUAD_SPD: 1.2,
   MAXDRAW: 150, BULLET_CAP: 140, PART_CAP: 520, TEXT_CAP: 30, FLYER_CAP: 24, MAXMEN: 9999999, SEED_OFF: 0,
 };
 
@@ -339,6 +350,9 @@ const ARCH = {
     skin: '#5f8a3c', dark: '#4a6e2c', leg: '#2c3a22', head: '#7aa84b', acc: 'sacs' },
   jugg:    { name: '철갑 거인', intro: 10, hp: 1.05, w: 1.3, track: 0.4, skills: { charge: 2, boulder: 3, shock: 2, slam: 2 },
     skin: '#7a7f86', dark: '#5a5f66', leg: '#33363b', head: '#8d9299', acc: 'cannon' },
+  // the red army's champion: steps out of the ranks on the castle bridge
+  giant:   { name: '거인 장군', intro: 1, hp: 1.0, w: 1.3, track: 0.5, skills: { slam: 3, charge: 2, shock: 1.5 },
+    skin: '#d9a066', dark: '#b8854f', leg: '#4a2a1a', head: '#e2b27c', acc: 'club', cape: '#c8282e' },
 };
 const AORDER = ['butcher', 'queen', 'jugg'];
 
@@ -431,6 +445,9 @@ const Tb = n => K.TB0 + K.TB_SPAN * ramp(n, K.TB_K);
 const gcf = n => Math.pow(K.COIN_G, n - 1);
 const tierOf = n => n % 10 === 0 ? 'war' : n % 10 === 5 ? 'big' : 'normal';
 const stageMul = n => tierOf(n) === 'war' ? 2 : tierOf(n) === 'big' ? 1.5 : 1;
+// even stages (except big/warlord ones) end on a castle bridge against a counted red army; the rest end with a zombie boss
+const stageKind = n => n === 2 || (n > 2 && n % 2 === 0 && n % 10 !== 0) ? 'army' : 'boss';
+const themeOf = n => stageKind(n) === 'army' ? 'castle' : 'desert';
 
 // reference spender: what a typical player has bought by stage n (EM = expected upgrade multiplier)
 const REF = { EM: [1, 1], LM: [0, 0], coins: 0, L: { men: 0, dmg: 0, rate: 0, coin: 0, armor: 0 } };
@@ -473,6 +490,7 @@ function makeModel(n) {
 // ---------- camera ----------
 let W = 0, H = 0, DPR = 1, F = 1, HOR = 0, CAM_H = 7, camZ = 0, camX = 0;
 let skyGrad, hazeGrad, vignette, sunGlow, stripes, mesas = [];
+let skyGradC, hazeGradC, seaGrad, failVig, towers = [];
 let QDRAW = MAXDRAW, QPART = K.PART_CAP;
 function P(x, y, z) {
   const dz = z - camZ;
@@ -502,6 +520,21 @@ function resize() {
   hazeGrad = ctx.createLinearGradient(0, HOR, 0, HOR + H * 0.13);
   hazeGrad.addColorStop(0, 'rgba(244,217,167,.95)');
   hazeGrad.addColorStop(1, 'rgba(244,217,167,0)');
+  // castle causeway: cooler sky, sea below the horizon
+  skyGradC = ctx.createLinearGradient(0, 0, 0, HOR);
+  skyGradC.addColorStop(0, '#3f8fd6');
+  skyGradC.addColorStop(0.7, '#9fd4ee');
+  skyGradC.addColorStop(1, '#e4f4f6');
+  hazeGradC = ctx.createLinearGradient(0, HOR, 0, HOR + H * 0.1);
+  hazeGradC.addColorStop(0, 'rgba(214,238,244,.9)');
+  hazeGradC.addColorStop(1, 'rgba(214,238,244,0)');
+  seaGrad = ctx.createLinearGradient(0, HOR, 0, H);
+  seaGrad.addColorStop(0, '#8fd3e8');
+  seaGrad.addColorStop(0.35, '#4aa3cf');
+  seaGrad.addColorStop(1, '#2f7fb5');
+  failVig = ctx.createRadialGradient(W / 2, H * 0.5, H * 0.18, W / 2, H * 0.5, H * 0.75);
+  failVig.addColorStop(0, 'rgba(120,10,20,0)');
+  failVig.addColorStop(1, 'rgba(150,10,24,.7)');
   vignette = ctx.createRadialGradient(W / 2, H * 0.55, H * 0.32, W / 2, H * 0.55, H * 0.85);
   vignette.addColorStop(0, 'rgba(30,18,6,0)');
   vignette.addColorStop(1, 'rgba(30,18,6,.38)');
@@ -530,6 +563,12 @@ function resize() {
       mesas.push({ layer, x, w, h });
       x += w * 0.75 + r() * W * 0.12;
     }
+  }
+  towers = [];
+  for (let x = W * 0.2; x < W * 1.5;) {
+    const w = (r() * 0.05 + 0.04) * W, h = (r() * 0.06 + 0.05) * H;
+    towers.push({ x, w, h, wall: (r() * 0.025 + 0.02) * H });
+    x += w + (r() * 0.12 + 0.05) * W;
   }
 }
 
@@ -561,8 +600,9 @@ const SEGDEF = {
   charge: { intro: 7, w: 0.8, max: 1, len: 43 },
   saw:    { intro: 7, w: 0.9, max: 1, len: 48 },
   elite:  { intro: 9, w: 0.6, max: 1, len: 34 },
+  redsquad: { intro: 2, w: 1.4, max: 2, len: 30, army: true },
 };
-const SEGNAME = { split: '3갈래 러시', horde: '대량 러시', wall: '마이너스 장벽', barrel: '폭발 드럼 지대', charge: '충전 게이트', saw: '톱날 구간', elite: '정예 관문' };
+const SEGNAME = { split: '3갈래 러시', horde: '대량 러시', wall: '마이너스 장벽', barrel: '폭발 드럼 지대', charge: '충전 게이트', saw: '톱날 구간', elite: '정예 관문', redsquad: '적 분대' };
 const SEGHINT = {
   split: '왼쪽 +1 / 가운데 좀비 둥지 / 오른쪽 보상 금고',
   horde: '벽이 터지면 좀비 떼가 쏟아져요',
@@ -571,6 +611,7 @@ const SEGHINT = {
   charge: '회색 게이트를 쏠수록 배수가 올라가요',
   saw: '톱날이 지나가는 줄을 피하세요',
   elite: '대장을 쓰러뜨려야 지나갈 수 있어요',
+  redsquad: '부딪히면 1:1로 줄어요 · 쏘거나 피하세요',
 };
 const splitLen = n => 72 + 1.2 * Math.min(n, 30);
 const BREATH = 8, GATE_GAP = 13, WAVE_LEN = 22;
@@ -604,7 +645,8 @@ function genStage(n) {
   const gates = [], zombies = [], objs = [], events = [], segs = [];
 
   // 1) deck of segments
-  const unlocked = Object.keys(SEGDEF).filter(k => SEGDEF[k].intro <= n);
+  const kind = stageKind(n);
+  const unlocked = Object.keys(SEGDEF).filter(k => SEGDEF[k].intro <= n && (!SEGDEF[k].army || kind === 'army'));
   const nSplit = (Kd >= 5 ? 2 : 1) + (bonus ? 1 : 0);
   const deck = [];
   for (let i = 0; i < nSplit; i++) deck.push('split');
@@ -723,6 +765,7 @@ function genStage(n) {
     else if (p.type === 'charge') fixed += 0.6 * 0.8 * EN;
     else if (p.type === 'barrel') scal += 0.6 * 0.08 * EN;
     else if (p.type === 'saw') scal += 0.5 * 8 * 0.012 * M.C;
+    else if (p.type === 'redsquad') fixed -= 0.3 * 0.4 * EN;
   }
   const nu = clamp((K.NU_TARGET * M.C - M.ec0 - fixed) / Math.max(1, scal), K.NU_MIN, K.NU_MAX);
 
@@ -914,6 +957,15 @@ function genStage(n) {
       events.push({ z: z0, type: 'trickle', until: z0 + 44, hp: hpw });
     } else if (p.type === 'elite') {
       zt('elite', 0, z0 + 30, M.hp(s, K.TAU.elite * K.U), { elite: true, active: true, castT: 1.6, berserk: 0 });
+    } else if (p.type === 'redsquad') {
+      const ln = [0, 1, 2];
+      for (let i = 2; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [ln[i], ln[j]] = [ln[j], ln[i]]; }
+      const nBlob = n >= 6 && r() < 0.5 ? 2 : 1;
+      for (let i = 0; i < nBlob; i++) {
+        const R = Math.max(5, pretty(EN * ru(K.RED_SQUAD[0], K.RED_SQUAD[1]) * (n < 6 ? 0.6 : 1)));
+        objs.push({ type: 'redsquad', x: LANES[ln[i]], z: z0 + 12 + i * 11, count: R, max: R, unitHP: hpw * 0.8, acc: 0,
+          hw: 0.22 * Math.sqrt(Math.min(R, 60)) + 0.3, hittable: true, dead: false, flash: 0, active: false });
+      }
     }
   }
 
@@ -930,7 +982,10 @@ function genStage(n) {
   gates.sort((a, b) => a.z - b.z);
   events.sort((a, b) => a.z - b.z);
   const tier = tierOf(n);
-  return { M, nu, gates, zombies, objs, events, segs, len, boss: { arch: bossFor(n), tier }, bonus, order };
+  // the first two army stages teach the clash, so their armies are smaller
+  const soft = n <= 2 ? 0.4 : n <= 4 ? 0.7 : 1;
+  const army = kind === 'army' ? { R0: pretty(K.ARMY_RATIO * M.C * soft), soft } : null;
+  return { M, nu, gates, zombies, objs, events, segs, len, boss: { arch: army ? 'giant' : bossFor(n), tier, army }, bonus, order, kind, theme: themeOf(n) };
 }
 
 // ---------- run state ----------
@@ -938,12 +993,19 @@ let G = null;
 let mode = 'menu';   // menu | play
 const keys = { l: false, r: false };
 
+// the red army waits at the end of the bridge; each red soldier is worth unitHP of damage
+function makeArmy(n, L) {
+  const M = L.M, R0 = L.boss.army.R0;
+  const need = Math.max(1, R0 - (1 - K.ARMY_MARGIN) * M.C * L.boss.army.soft);
+  return { count: R0, max: R0, z: L.len + K.HOLD_GAP + K.ARMY_GAP, unitHP: M.E(1) * K.ARMY_FIRE_T * Zf(n) * creep(n) / need, acc: 0, flash: 0, shown: R0 };
+}
 function newRun(stage) {
   const L = genStage(stage);
   const count = startMen(stage, save.up.men);
   return {
     stage, M: L.M, nu: L.nu, len: L.len, gates: L.gates, zombies: L.zombies, objs: L.objs, events: L.events, evI: 0,
-    segs: L.segs, bossCfg: L.boss, bonus: L.bonus, boss: null, halt: null,
+    segs: L.segs, bossCfg: L.boss, bonus: L.bonus, boss: null, halt: null, kind: L.kind, theme: L.theme, clash: null,
+    army: L.boss.army ? makeArmy(stage, L) : null,
     tokens: [], streams: [], hordes: [], trickles: [], zones: [], group: 0, flyers: [],
     dist: 0, x: 0, tx: 0, vx: 0, lane: 1, count, shown: count, punch: 0, dims: squadDims(count),
     weapon: { id: 'rifle', star: 1 }, buff: { fire: 1, dodgeT: 0 }, pity: save.fails[stage] || 0,
@@ -1009,7 +1071,10 @@ function lose(n, src, raw) {
   g.stats.lossBy[src] = (g.stats.lossBy[src] || 0) + n;
   return n;
 }
+// castle stages fight soldiers, so zombie wording is swapped on the way to the HUD
+function themed(s) { return s && G && G.theme === 'castle' ? s.replace(/좀비 둥지/g, '적 병영').replace(/좀비가/g, '적병이').replace(/좀비/g, '적병') : s; }
 function banner(text, sub, dur = 1.4, pri = 0) {
+  text = themed(text); sub = themed(sub);
   const b = $('hBanner');
   const now = performance.now();
   if (pri < (banner.pri || 0) && now < banner.until) { banner.q = [text, sub, dur]; return; }
@@ -1027,6 +1092,7 @@ function banner(text, sub, dur = 1.4, pri = 0) {
   }, dur * 1000);
 }
 function callout(text, dur = 1.0) {
+  text = themed(text);
   const c = $('hSkill');
   c.textContent = text;
   c.hidden = false;
@@ -1037,6 +1103,7 @@ function callout(text, dur = 1.0) {
 let hintT = 0;
 function showHint(key, text, sub) {
   if (key && save.seen[key]) return;
+  text = themed(text); sub = themed(sub);
   const now = performance.now();
   if (!key && showHint.key && now < showHint.until) return;   // a first-time hint keeps the floor
   if (key) { save.seen[key] = 1; persist(); }
@@ -1229,12 +1296,14 @@ function hitTest(b, z0) {
     }
   }
   const bs = g.boss;
-  if (bs && bs.hp > 0 && bs.z + 0.8 >= z0 && bs.z - 0.8 <= b.z && bs.z < hz && Math.abs(bs.x - b.x) < bs.w) best = { kind: 4, obj: bs };
+  if (bs && bs.hp > 0 && bs.z + 0.8 >= z0 && bs.z - 0.8 <= b.z && bs.z < hz && Math.abs(bs.x - b.x) < bs.w) { best = { kind: 4, obj: bs }; hz = bs.z; }
+  const ar = g.army;
+  if (ar && ar.count > 0 && ar.z + 0.4 >= z0 && ar.z - 0.4 <= b.z && ar.z < hz && Math.abs(b.x) <= ROAD) best = { kind: 5, obj: ar };
   return best;
 }
 function updateBullets(dt) {
   const g = G;
-  const live = g.phase === 'run' || g.phase === 'boss';
+  const live = g.phase === 'run' || g.phase === 'boss' || g.phase === 'clash';
   for (let k = g.bullets.length - 1; k >= 0; k--) {
     const b = g.bullets[k];
     const z0 = b.z;
@@ -1249,7 +1318,8 @@ function updateBullets(dt) {
       if (h.kind === 1) hitZombie(h.obj, dmg, b);
       else if (h.kind === 2) hitObj(h.obj, dmg, b);
       else if (h.kind === 3) hitPanel(h.obj, h.gate, dmg);
-      else hitBoss(h.obj, dmg);
+      else if (h.kind === 4) hitBoss(h.obj, dmg);
+      else hitArmy(h.obj, dmg, b);
       if (b.splash && h.kind <= 2) { splash(b.x, h.obj.z, b.splash, dmg * 0.6, h.obj); burst(b.x, 0.6, h.obj.z, 6, FIRE, 3); }
       b.hits++;
       if (h.kind >= 3 || b.hits >= Math.max(1, b.pierce)) { spent = true; break; }
@@ -1273,8 +1343,39 @@ function hitZombie(zb, dmg, b) {
   if (!zb.elite) zb.z += zb.big ? 0.03 : 0.12;
   if (zb.hp <= 0) kill(zb);
 }
+const RED = ['#e0282e', '#ff8a8a', '#7a1a1a'];
+// before the charge the shield wall holds; during the charge a remnant always reaches the line, so the crash plays out
+function armyFloor(ar) {
+  const g = G;
+  if (g.phase !== 'clash') return Math.ceil(ar.max * (1 - K.ARMY_PRE_CAP));
+  if (g.clash.st === 'melee') return 0;
+  return Math.min(ar.count, Math.max(1, Math.ceil(K.ARMY_REMNANT * g.count)));
+}
+function hitArmy(ar, dmg, b) {
+  ar.acc += dmg * (b.splash ? 1.6 : 1);
+  ar.dmg = (ar.dmg || 0) + dmg * (b.splash ? 1.6 : 1);
+  // before the charge the front ranks lock shields: at most ARMY_PRE_CAP of the army can fall
+  const floor = armyFloor(ar);
+  const k = Math.min(ar.count - floor, Math.floor(ar.acc / ar.unitHP));
+  if (k <= 0 && ar.count <= floor) {
+    ar.acc = Math.min(ar.acc, ar.unitHP);
+    if (G.phase !== 'clash' && G.t - (ar.blockT || -1) > 0.5) { ar.blockT = G.t; floatText(b.x, 1.4, ar.z, '방패벽', '#8fd8ff', 0.6, false); }
+  }
+  if (k > 0) {
+    ar.acc -= k * ar.unitHP; ar.count -= k; G.kills += k;
+    if (G.t - (ar.flashT || -1) > 0.15) { ar.flash = 0.06; ar.flashT = G.t; burst(b.x, 0.8, ar.z, 3, RED, 2.5); }
+  }
+  if (ar.count <= 0) armyDown();
+}
 function hitObj(o, dmg, b) {
   if (o.dead) return;
+  if (o.type === 'redsquad') {
+    o.acc += dmg * (b.splash ? 1.6 : 1);
+    const k = Math.min(o.count, Math.floor(o.acc / o.unitHP));
+    if (k > 0) { o.acc -= k * o.unitHP; o.count -= k; G.kills += k; o.flash = 0.06; }
+    if (o.count <= 0) { o.dead = true; burst(o.x, 0.7, o.z, 18, RED, 4); floatText(o.x, 2, o.z, '적 분대 격파!', '#ffc21a', 0.8, false); sfx('crate'); }
+    return;
+  }
   o.hp -= dmg; o.flash = 0.06;
   if (o.hp <= 0) destroyObj(o);
 }
@@ -1403,7 +1504,8 @@ function updateSpawners(dt) {
     st.acc += sdt;
     while (st.acc >= st.every) {
       st.acc -= st.every;
-      g.tokens.push({ x: LANES[st.lane], z: g.dist + K.TOK_AHEAD, vz: K.TOK_VZ, k: st.k, lane: st.lane, got: false, miss: false, t: 0 });
+      const wall = g.theme === 'castle' ? (st.lane === 0 ? -0.55 : st.lane === 2 ? 0.55 : 0) : 0;
+      g.tokens.push({ x: LANES[st.lane] + wall, z: g.dist + K.TOK_AHEAD, vz: K.TOK_VZ, k: st.k, lane: st.lane, got: false, miss: false, t: 0 });
     }
   }
   if (g.streams.length) g.streams = g.streams.filter(s => !s.done);
@@ -1489,6 +1591,26 @@ function updateObjs(dt) {
       case 'drum': case 'barrel': case 'sandbag':
         if (o.z < g.dist - 2) o.dead = true;
         break;
+      case 'redsquad': {
+        o.hw = 0.22 * Math.sqrt(Math.min(o.count, 60)) + 0.3;
+        const dz = o.z - g.dist;
+        if (!o.active && dz < 40) o.active = true;
+        if (o.active && g.phase === 'run' && !g.halt) o.z -= K.RED_SQUAD_SPD * dt;
+        const d = g.dims, ex = (o.x - g.x) / (d.rx + o.hw), ez = dz / (d.rz + o.hw * 0.8);
+        if (g.count > 0 && g.phase === 'run' && ex * ex + ez * ez < 1) {
+          // crowds cancel one for one; the bigger side walks on with the difference
+          const k = Math.min(g.count, o.count);
+          lose(k, 'clash', true);
+          o.count -= k;
+          burst(o.x, 0.7, o.z, Math.min(30, 8 + k / 4), RED, 4);
+          burst(g.x, 0.6, g.dist + d.rz, Math.min(30, 8 + k / 4), BLUE, 4);
+          g.shake = Math.max(g.shake, 9);
+          sfx('boom');
+          if (o.count <= 0) { o.dead = true; floatText(o.x, 2.2, o.z, '돌파!', '#5cc8ff', 1.1, false); }
+        }
+        if (dz < -3) o.dead = true;
+        break;
+      }
       case 'saw':
         o.x = 2.2 * Math.sin(o.om * g.t + 2.1 * o.i);
         if (!o.crossed && g.dist >= o.z) { o.crossed = true; sawHit(o); }
@@ -1512,7 +1634,7 @@ function sawHit(o) {
 
 function updateZombies(dt) {
   const g = G, d = g.dims;
-  const moving = g.phase === 'run' || g.phase === 'boss';
+  const moving = g.phase === 'run' || g.phase === 'boss' || g.phase === 'clash';
   let alive = 0;
   for (const zb of g.zombies) {
     if (zb.dead) continue;
@@ -1743,17 +1865,20 @@ function startArena() {
   // a squad far above the curve gets a tougher boss (never easier), so x2 snowballs still meet a real fight
   const O = clamp(Math.pow(squadDPS(true) / E1, K.O_EXP), 1, K.O_CAP);
   const tier = cfg.tier === 'big' ? K.TIER_BIG : cfg.tier === 'war' ? K.TIER_WAR : 1;
-  const ttk = Tb(n) * tier * A.hp * Zf(n) * creep(n) * O;
+  const ttk = Tb(n) * tier * A.hp * Zf(n) * creep(n) * O * (g.army ? K.HERO_HP : 1);
+  // the same overshoot hardens the red army, so a snowballed squad still has to clash
+  if (g.army) g.army.unitHP *= O;
   // the boss is already taking fire during its walk-in, so that time is added on top of the fight
   const hp = E1 * (K.U * ttk + K.ENTER_T);
   const scale = cfg.tier === 'big' ? 1.25 : cfg.tier === 'war' ? 1.35 : 1;
   g.boss = {
-    arch: cfg.arch, A, tier: cfg.tier, scale, x: 0, z: g.dist + K.ENTER_GAP, hp, max: hp, w: A.w, ttk, O,
+    arch: cfg.arch, A, tier: cfg.tier, scale, x: 0, z: g.army ? g.army.z - 1 : g.dist + K.ENTER_GAP, hp, max: hp, w: A.w, ttk, O,
     state: 'enter', st: 0, phase: 1, cd: 0.8, last: null, rage: false, shield: false, fightT: 0, enrWarn: false, enraged: false,
     stompT: 0, pose: 'walk', flash: 0, walk: 0, rng: mulberry(n * 31 + 7 + K.SEED_OFF), dash: null, summonN: 0,
     ph50: false, ph66: false, ph33: false, pylonT: 0, slamT: 0, after: null, until: 0, next: null, poseUntil: 0, blockT: 0, lastTele: -99, flashT: -1,
   };
-  banner('보스 등장! ' + A.name, TIER_NAME[cfg.tier] ? TIER_NAME[cfg.tier] + ' 보스' : '');
+  if (g.army) banner('적장 등장! ' + A.name, '쓰러뜨리면 전군 돌격');
+  else banner('보스 등장! ' + A.name, TIER_NAME[cfg.tier] ? TIER_NAME[cfg.tier] + ' 보스' : '');
   g.shake = 8;
   sfx('roar');
   setupBossBar();
@@ -1966,12 +2091,94 @@ function bossDie() {
   const g = G, bs = g.boss;
   if (g.phase !== 'boss') return;
   bs.hp = 0;
-  g.phase = 'win'; g.endT = g.t; g.shake = 16; g.dslow = reduceMotion ? 0 : 0.6;
   for (const z of g.zones) z.done = true;
-  burst(bs.x, 1.8, bs.z, 90, GOO.concat(FIRE), 8, 0.2);
+  if (g.army && g.army.count > 0) {
+    // the general falls: the volley and the charge decide the stage
+    burst(bs.x, 1.8, bs.z, 60, [bs.A.skin, bs.A.cape, '#ffd34d'], 7, 0.18);
+    g.shake = 12;
+    startCharge();
+    return;
+  }
+  g.phase = 'win'; g.endT = g.t; g.shake = 16; g.dslow = reduceMotion ? 0 : 0.6;
+  burst(bs.x, 1.8, bs.z, 90, g.army ? [bs.A.skin, bs.A.cape].concat(FIRE) : GOO.concat(FIRE), 8, 0.2);
   burst(bs.x, 2.5, bs.z, 40, GOLD, 6, 0.14);
   sfx('win');
   vibrate(40);
+}
+
+// ---------- army finale ----------
+// volley: VOLLEY_SEC seconds of squad fire land at once as lightning; then both lines charge and cancel one for one
+function startCharge() {
+  const g = G, ar = g.army;
+  g.phase = 'clash';
+  for (const zb of g.zombies) if (!zb.dead) zb.dead = true;
+  const vs = K.VOLLEY_SEC + (WEAPONS[g.weapon.id].short ? K.VOLLEY_SHORT : 0);
+  g.clash = { st: 'volley' };
+  const v = Math.max(0, Math.min(ar.count - armyFloor(ar), Math.floor(vs * squadDPS() / ar.unitHP)));
+  g.clash = { st: 'volley', t: 0, v, vDone: 0, m0: 0, mDone: 0, beams: [], beamT: 0 };
+  const E1 = g.M.E(1);
+  g.stats.charge = { men: g.count, army: ar.count, volley: v, r: +(squadDPS() / E1).toFixed(2), pre: +((ar.dmg || 0) / E1).toFixed(1) };
+  ar.dmg = (ar.dmg || 0) + vs * squadDPS();
+  caption('CHARGE FORWARD!', '전군 돌격!');
+  g.shake = Math.max(g.shake, 10);
+  sfx('charge');
+  vibrate(30);
+}
+function armyDown() {
+  const g = G, ar = g.army;
+  ar.count = 0;
+  burst(0, 1, ar.z + 1, 70, RED.concat(GOLD), 7, 0.16);
+  if (g.phase === 'clash') {
+    g.phase = 'win'; g.endT = g.t; g.shake = 16; g.dslow = reduceMotion ? 0 : 0.6;
+    caption('VICTORY!', `${fmt(g.count)}명 생존`);
+    sfx('win');
+    vibrate(40);
+  } else floatText(0, 2.6, ar.z, '적군 전멸!', '#ffc21a', 1.3, false);
+}
+function updateClash(dt) {
+  const g = G, ar = g.army, c = g.clash;
+  ar.flash = Math.max(0, ar.flash - dt);
+  c.t += dt;
+  for (let i = c.beams.length - 1; i >= 0; i--) if ((c.beams[i].life -= dt) <= 0) c.beams.splice(i, 1);
+  if (c.st === 'volley') {
+    const want = Math.round(c.v * clamp(c.t / K.VOLLEY_T, 0, 1));
+    const k = Math.min(ar.count, want - c.vDone);
+    if (k > 0) { c.vDone += k; ar.count -= k; g.kills += k; ar.shown = ar.count; }
+    if (c.t < K.VOLLEY_T) {
+      c.beamT -= dt;
+      for (; c.beamT <= 0; c.beamT += 0.035) {
+        const d = g.dims, f = FORM[(Math.random() * d.m) | 0];
+        const tx = rand(-ROAD + 0.2, ROAD - 0.2), tz = ar.z + rand(0, 2.5);
+        c.beams.push({ x0: g.x + f.x * d.kx, z0: g.dist + f.z * d.kz, x1: tx, z1: tz, life: 0.16, seed: Math.random() * 1000 });
+        if (Math.random() < 0.5) burst(tx, 0.5, tz, 3, ['#bff6ff', '#5cc8ff', '#ffffff'], 3, 0.1);
+      }
+      if (Math.random() < dt * 12) sfx('zap');
+    }
+    if (ar.count <= 0) { armyDown(); return; }
+    if (c.t >= K.VOLLEY_T + 0.35) { c.st = 'advance'; c.t = 0; }
+  } else if (c.st === 'advance') {
+    ar.z -= K.ARMY_ADV * dt;
+    g.dist += K.SQUAD_ADV * dt;
+    ar.walk = (ar.walk || 0) + dt;
+    if (ar.z - g.dist <= g.dims.rz + 1.3) { c.st = 'melee'; c.t = 0; c.m0 = Math.min(g.count, ar.count); c.T = K.CLASH_T * clamp(Math.sqrt(c.m0 / 200), 0.5, 1); g.stats.charge.melee = [g.count, ar.count]; g.stats.charge.fire = +(ar.dmg / g.M.E(1)).toFixed(1); g.shake = 14; sfx('clash'); vibrate(50); }
+  } else if (c.st === 'melee') {
+    ar.z = Math.max(g.dist + g.dims.rz + 0.9, ar.z - 0.6 * dt);
+    const want = Math.round(c.m0 * clamp(c.t / c.T, 0, 1));
+    const k = want - c.mDone;
+    if (k > 0) {
+      c.mDone += k;
+      const kk = Math.min(k, ar.count);
+      ar.count -= kk;
+      lose(kk, 'clash', true);
+      if (Math.random() < 0.6) {
+        const x = rand(-ROAD + 0.3, ROAD - 0.3), z = (g.dist + ar.z) / 2 + 0.5;
+        burst(x, 0.7, z, 5, RED, 3.5); burst(x, 0.6, z - 0.4, 5, BLUE, 3.5);
+      }
+      g.shake = Math.max(g.shake, 5);
+      if (Math.random() < 0.3) sfx('boom');
+    }
+    if (ar.count <= 0 && g.count > 0) armyDown();
+  }
 }
 function updateBoss(dt) {
   const g = G, bs = g.boss;
@@ -2055,7 +2262,7 @@ function update(dt) {
   g.vx = dt > 0 ? (g.x - px) / dt : 0;
   g.lane = laneOf(g.x, g.lane);
   g.dims = squadDims(g.count);
-  const fighting = g.phase === 'run' || g.phase === 'boss';
+  const fighting = g.phase === 'run' || g.phase === 'boss' || g.phase === 'clash';
 
   if (g.phase === 'run' && !g.halt) {
     g.dist += SPEED * dt;
@@ -2082,6 +2289,7 @@ function update(dt) {
   updateObjs(dt);
   updateZones(dt);
   if (g.phase === 'boss') updateBoss(dt);
+  else if (g.phase === 'clash') updateClash(dt);
   for (const gt of g.gates) for (const p of gt.panels) if (p.flash > 0) p.flash -= dt;
 
   if (g.lostAcc > 0 && g.t - g.lostT > 0.25) {
@@ -2091,6 +2299,8 @@ function update(dt) {
   if (fighting && g.count <= 0) {
     g.count = 0; g.phase = 'lose'; g.endT = g.t;
     for (const z of g.zones) z.done = true;
+    caption('FAIL', g.clash && g.army.count > 0 ? `적군 ${fmt(g.army.count)}명 남음` : '분대 전멸', true);
+    sfx('buzz');
     sfx('lose');
   }
   if ((g.phase === 'win' || g.phase === 'lose') && !g.done && g.t - g.endT > 1.6) { g.done = true; finish(g.phase === 'win'); }
@@ -2137,6 +2347,7 @@ const LOSS_TIP = {
   gate: n => `빨간 게이트로 ${fmt(n)}명 잃었어요. 빨간 게이트도 쏘면 숫자가 올라가요.`,
   saw: n => `톱날에 ${fmt(n)}명 잃었어요. 톱날이 지나가는 줄을 피하세요.`,
   elite: n => `정예 대장에게 ${fmt(n)}명 잃었어요. 빨간 차선을 피하면서 쏘세요.`,
+  clash: n => `적군과 부딪혀 ${fmt(n)}명 잃었어요. 적 분대는 쏘거나 피해 가고, 마지막 돌격 전에 인원을 늘리세요.`,
 };
 function finish(win) {
   const g = G, n = g.stage, cm = coinMul(), gc = gcf(n);
@@ -2224,6 +2435,7 @@ function groundEllipse(cx, cz, r) {
 const fade = dz => clamp((FAR - dz) / 22, 0, 1);
 
 function drawSky() {
+  if (castleOn()) { drawSkyCastle(); return; }
   ctx.fillStyle = skyGrad;
   ctx.fillRect(-30, -30, W + 60, HOR + 31);
   const sx = W * 0.76 - camX * 4, sy = HOR - H * 0.11, gr = H * 0.12;
@@ -2244,10 +2456,12 @@ function drawSky() {
 
 const LANE_TINT = ['rgba(52,170,255,.20)', 'rgba(226,58,76,.15)', 'rgba(255,194,26,.22)'];
 function drawGround() {
-  const g = G;
+  const g = G, castle = castleOn();
+  const L = 5, zn = camZ + 0.6, zf = camZ + FAR;
+  if (castle) drawGroundCastle();
+  else {
   ctx.fillStyle = '#e2bb80';
   ctx.fillRect(-30, HOR, W + 60, H - HOR + 30);
-  const L = 5, zn = camZ + 0.6, zf = camZ + FAR;
   ctx.fillStyle = '#d6ac70';
   for (let k = Math.floor(zn / L); k * L < zf; k++) {
     if (k & 1) continue;
@@ -2262,6 +2476,7 @@ function drawGround() {
     if (k & 1) continue;
     const z0 = Math.max(k * L, zn), z1 = Math.min((k + 1) * L, zf);
     quad(P(-ROAD, 0, z0), P(ROAD, 0, z0), P(ROAD, 0, z1), P(-ROAD, 0, z1)); ctx.fill();
+  }
   }
   // lane-split floors: blue stream, red nest, gold vault
   for (const sg of g.segs) {
@@ -2286,7 +2501,7 @@ function drawGround() {
     }
   }
   const C = 2;
-  for (let k = Math.floor(zn / C); k * C < zf; k++) {
+  for (let k = Math.floor(zn / C); !castle && k * C < zf; k++) {
     const z0 = Math.max(k * C, zn), z1 = Math.min((k + 1) * C, zf);
     ctx.fillStyle = k & 1 ? '#25221d' : '#ffc21a';
     quad(P(-ROAD - 0.35, 0, z0), P(-ROAD, 0, z0), P(-ROAD, 0, z1), P(-ROAD - 0.35, 0, z1)); ctx.fill();
@@ -2294,7 +2509,7 @@ function drawGround() {
   }
   ctx.fillStyle = 'rgba(246,239,222,.85)';
   const D = 6;
-  for (let k = Math.floor(zn / D); k * D < zf; k++) {
+  for (let k = Math.floor(zn / D); !castle && k * D < zf; k++) {
     const z0 = Math.max(k * D, zn), z1 = Math.min(k * D + 2.2, zf);
     if (z1 <= z0) continue;
     for (const lx of [-1, 1]) { quad(P(lx - 0.06, 0, z0), P(lx + 0.06, 0, z0), P(lx + 0.06, 0, z1), P(lx - 0.06, 0, z1)); ctx.fill(); }
@@ -2306,12 +2521,14 @@ function drawGround() {
       quad(P(x0, 0, g.len - 0.35), P(x0 + ROAD / 4, 0, g.len - 0.35), P(x0 + ROAD / 4, 0, g.len + 0.35), P(x0, 0, g.len + 0.35)); ctx.fill();
     }
   }
-  ctx.fillStyle = hazeGrad;
+  if (castle) drawParapets();
+  ctx.fillStyle = castle ? hazeGradC : hazeGrad;
   ctx.fillRect(-30, HOR, W + 60, H * 0.13);
 }
 
 function hash(i, s) { let h = Math.imul(i * 2 + (s > 0 ? 1 : 0) + 7, 2654435761) >>> 0; h ^= h >>> 15; return Math.imul(h, 2246822519) >>> 0; }
 function drawProps() {
+  if (castleOn()) { drawPropsCastle(); return; }
   const S = 10;
   const k0 = Math.floor((camZ + 1) / S), k1 = Math.floor((camZ + FAR) / S);
   for (let k = k1; k >= k0; k--) {
@@ -2368,7 +2585,7 @@ function drawRock(x, y, u, h) {
   ctx.beginPath(); ctx.moveTo(x + s * 0.2, y - s * 0.85); ctx.lineTo(x + s, y - s * 0.3); ctx.lineTo(x + s * 0.9, y); ctx.lineTo(x + s * 0.15, y); ctx.fill();
 }
 function drawSign(p, meters) {
-  const u = p.s, x = p.x, y = p.y, txt = 'BOSS ' + meters + 'm';
+  const u = p.s, x = p.x, y = p.y, txt = (G.army ? '적군 ' : 'BOSS ') + meters + 'm';
   ctx.font = fontOf(u * 0.27, DISPLAY);
   const hw = Math.max(u * 0.62, ctx.measureText(txt).width / 2 + u * 0.14);
   ctx.fillStyle = '#3b3a38'; ctx.fillRect(x - u * 0.04, y - u * 1.5, u * 0.08, u * 1.5);
@@ -2538,6 +2755,7 @@ function drawSoldierRaw(x, y, h, st, wid, danger, shadow) {
 // ---------- zombies ----------
 const SHIRTS = ['#7a5c8f', '#5b6d7a', '#8a6b4a', '#4f7a5e', '#8f4f4f'];
 function drawZombie(zb, p, t) {
+  if (castleOn()) { drawRedZombie(zb, p, t); return; }
   const g = G, u = p.s, T = ZT[zb.type];
   const h = T.h * u;
   if (h < 2) return;
@@ -2641,6 +2859,12 @@ function drawBoss(bs, p, t) {
   const breathe = Math.sin(t * 3) * h * 0.01;
   ctx.globalAlpha = fade(p.dz);
   ctx.fillStyle = 'rgba(30,20,10,.3)'; oval(x, y, w * 0.75, w * 0.18); ctx.fill();
+  if (A.cape) {
+    const sw = Math.sin(t * 2.2) * w * 0.05, ct = y - h * 0.86 + low;
+    ctx.fillStyle = A.cape;
+    ctx.beginPath(); ctx.moveTo(x - w * 0.6, ct); ctx.lineTo(x + w * 0.6, ct); ctx.lineTo(x + w * 0.78 + sw, y - h * 0.1); ctx.lineTo(x - w * 0.78 + sw, y - h * 0.1); ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.fillRect(x - w * 0.05, ct, w * 0.1, h * 0.7);
+  }
   ctx.fillStyle = A.leg;
   const lh = h * 0.4 - low;
   const l1 = lh * (1 - 0.15 * Math.max(0, step)), l2 = lh * (1 - 0.15 * Math.max(0, -step));
@@ -2695,14 +2919,30 @@ function drawBoss(bs, p, t) {
     ctx.fillStyle = '#5a3a2a'; ctx.fillRect(cx - w * 0.02, cy + h * 0.02, w * 0.06, h * 0.08);
   }
   if (A.acc === 'cannon') { ctx.fillStyle = '#3a3d42'; rr(x + w * 0.56, top + h * 0.3, w * 0.3, h * 0.2, w * 0.06); ctx.fill(); }
+  if (A.acc === 'club') {
+    const cx = armUp ? x + w * 0.7 : x + w * 0.7, cy = armUp ? top - h * 0.36 : top + h * 0.5;
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(armUp ? -0.25 : 0.35);
+    ctx.fillStyle = '#6b4a2a'; rr(-w * 0.07, -h * (armUp ? 0.5 : 0.05), w * 0.14, h * 0.55, w * 0.05); ctx.fill();
+    ctx.fillStyle = '#7d5a34'; rr(-w * 0.14, -h * (armUp ? 0.62 : -0.32), w * 0.28, h * 0.24, w * 0.1); ctx.fill();
+    ctx.fillStyle = '#c9ced6';
+    for (let i = 0; i < 3; i++) circle(-w * 0.12 + i * w * 0.12, -h * (armUp ? 0.62 : -0.32) + h * 0.06 + (i & 1) * h * 0.08, w * 0.035), ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = '#9aa0a8';
+    for (const s of [-1, 1]) { oval(x + s * w * 0.5, top + h * 0.05, w * 0.2, h * 0.07); ctx.fill(); }
+  }
   ctx.fillStyle = '#e8dfcc';
-  for (const s of [-1, 1]) for (let i = 0; i < 3; i++) {
+  for (const s of [-1, 1]) for (let i = 0; A.acc !== 'club' && i < 3; i++) {
     const bx = x + s * w * (0.32 + i * 0.1), by = top + h * 0.02 + i * h * 0.005;
     ctx.beginPath(); ctx.moveTo(bx - w * 0.04, by); ctx.lineTo(bx + s * w * 0.02, by - h * 0.08); ctx.lineTo(bx + w * 0.04, by); ctx.fill();
   }
   const hy = top - h * 0.02 - (pose === 'roar' ? h * 0.03 : 0);
   ctx.fillStyle = A.head; circle(x, hy, w * 0.2); ctx.fill();
-  ctx.fillStyle = '#ff2d2d'; circle(x - w * 0.08, hy - h * 0.02, w * 0.04); ctx.fill(); circle(x + w * 0.08, hy - h * 0.02, w * 0.04); ctx.fill();
+  ctx.fillStyle = A.acc === 'club' ? '#2a1a1a' : '#ff2d2d'; circle(x - w * 0.08, hy - h * 0.02, w * 0.04); ctx.fill(); circle(x + w * 0.08, hy - h * 0.02, w * 0.04); ctx.fill();
+  if (A.acc === 'club') {
+    ctx.fillStyle = '#8a9099'; ctx.beginPath(); ctx.arc(x, hy - h * 0.01, w * 0.22, Math.PI, TAU); ctx.fill();
+    ctx.fillRect(x - w * 0.24, hy - h * 0.015, w * 0.48, h * 0.02);
+    ctx.fillStyle = '#c8282e'; oval(x, hy - w * 0.28, w * 0.05, h * 0.05); ctx.fill();
+  }
   ctx.fillStyle = '#2a1a22';
   if (pose === 'roar') { oval(x, hy + h * 0.04, w * 0.08, h * 0.03); ctx.fill(); }
   else { rr(x - w * 0.09, hy + h * 0.04, w * 0.18, h * 0.03, h * 0.01); ctx.fill(); }
@@ -2734,6 +2974,7 @@ function drawObj(o, p, t) {
   else if (o.type === 'sandbag') drawWallBags(o);
   else if (o.type === 'saw') drawSaw(o, t);
   else if (o.type === 'pylon') drawPylon(o, p, t);
+  else if (o.type === 'redsquad') drawRedSquad(o, p, t);
   ctx.globalAlpha = 1;
 }
 function hpBar(x, y, w, h, f, col) {
@@ -2771,6 +3012,7 @@ function drawVault(o, p, a0, t) {
   }
 }
 function drawNest(o, p, t) {
+  if (castleOn()) { drawBarracks(o, p, t); return; }
   const u = p.s, x = p.x, y = p.y;
   const bw = 1.9 * u, bh = 1.5 * u;
   if (bw < 3) return;
@@ -2909,12 +3151,14 @@ function drawEntities(t) {
   for (const o of g.objs) if (!o.dead && inView(o.z)) list.push({ z: o.z, k: 2, o });
   for (const tk of g.tokens) if (inView(tk.z)) list.push({ z: tk.z, k: 5, o: tk });
   if (g.boss && g.boss.hp > 0 && inView(g.boss.z)) list.push({ z: g.boss.z, k: 3, o: g.boss });
+  if (g.army && g.army.count > 0 && inView(g.army.z)) list.push({ z: g.army.z, k: 6, o: g.army });
   list.push({ z: g.dist + 0.01, k: 4 });
   list.sort((a, b) => b.z - a.z);
   for (const e of list) {
     if (e.k === 0) drawGate(e.o);
     else if (e.k === 4) drawSquad(t);
     else if (e.k === 5) drawToken(e.o);
+    else if (e.k === 6) drawArmy(e.o, t);
     else {
       const p = P(e.o.x, 0, e.z);
       if (!p) continue;
@@ -2991,15 +3235,14 @@ function drawBubble() {
   if (!p) return;
   const txt = fmt(g.shown);
   const punch = 1 + (reduceMotion ? 0 : 0.35 * Math.sin(Math.min(1, g.punch) * Math.PI) * g.punch);
-  const fs = clamp(p.s * 0.55, 18, 30) * punch;
+  const fs = clamp(p.s * 0.7, 22, 38) * punch;
   ctx.font = fontOf(Math.round(fs), DISPLAY);
-  const tw = ctx.measureText(txt).width + fs * 1.0;
+  const tw = ctx.measureText(txt).width + fs * 0.4;
   const x = p.x, y = p.y - fs;
-  ctx.fillStyle = g.count > 0 ? '#2d63f0' : '#e23a4c';
-  rr(x - tw / 2, y - fs * 0.72, tw, fs * 1.44, fs * 0.5); ctx.fill();
-  ctx.strokeStyle = '#1c1a16'; ctx.lineWidth = 3; ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(x - fs * 0.25, y + fs * 0.7); ctx.lineTo(x, y + fs * 1.05); ctx.lineTo(x + fs * 0.25, y + fs * 0.7); ctx.fill();
-  label(txt, x, y + fs * 0.05, fs, '#fff', null);
+  ctx.fillStyle = g.count > 0 ? '#2d6bff' : '#e23a4c';
+  ctx.strokeStyle = '#14141c'; ctx.lineWidth = 3; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(x - fs * 0.22, y + fs * 0.62); ctx.lineTo(x, y + fs * 0.92); ctx.lineTo(x + fs * 0.22, y + fs * 0.62); ctx.closePath(); ctx.stroke(); ctx.fill();
+  bigNum(txt, x, y, fs, g.count > 0 ? '#2d6bff' : '#e23a4c');
   if (g.tok.n >= 2 && g.t - g.tok.t < 1.0) pill(`+${fmt(g.tok.sum)} ×${g.tok.n}`, x + tw / 2 + 30, y, 14, '#34aaff', '#fff');
   if (g.preview > 0) pill(`-${fmt(g.preview)}?`, x - tw / 2 - 28, y, 14, '#e23a4c', '#fff');
 }
@@ -3016,12 +3259,353 @@ function render() {
   drawEntities(g.t);
   drawZones(1);
   drawBullets();
+  drawBeams();
   drawFlyers();
   drawFx();
   if (g.count > 0 || g.phase === 'lose') drawBubble();
   ctx.restore();
   ctx.fillStyle = vignette;
   ctx.fillRect(0, 0, W, H);
+  if (g.phase === 'lose') {
+    ctx.globalAlpha = clamp((g.t - g.endT) / 0.4, 0, 1);
+    ctx.fillStyle = 'rgba(70,70,80,.22)'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = failVig; ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ---------- castle causeway theme (army stages) ----------
+const castleOn = () => G && G.theme === 'castle';
+function drawSkyCastle() {
+  ctx.fillStyle = skyGradC;
+  ctx.fillRect(-30, -30, W + 60, HOR + 31);
+  const sx = W * 0.22 - camX * 4, sy = HOR - H * 0.12;
+  ctx.save(); ctx.translate(sx, sy); ctx.fillStyle = sunGlow; ctx.fillRect(-H * 0.12, -H * 0.12, H * 0.24, H * 0.24); ctx.restore();
+  // a far citadel on the right: one long wall with square towers
+  const off = -camX * 10;
+  ctx.fillStyle = '#8b9aa8';
+  ctx.fillRect(W * 0.45 + off, HOR - H * 0.03, W * 1.2, H * 0.03 + 1);
+  for (const t of towers) {
+    const x = t.x + off, top = HOR - t.h;
+    ctx.fillStyle = '#7d8c9b';
+    ctx.fillRect(x, top, t.w, t.h + 1);
+    const m = t.w / 5;
+    for (let i = 0; i < 5; i += 2) ctx.fillRect(x + i * m, top - m, m, m);
+    ctx.fillStyle = '#5f6e7d'; ctx.fillRect(x + t.w * 0.4, top + t.h * 0.3, t.w * 0.2, t.h * 0.18);
+    ctx.fillStyle = '#c8282e';
+    ctx.beginPath(); ctx.moveTo(x + t.w / 2, top - m); ctx.lineTo(x + t.w / 2, top - m - t.h * 0.35); ctx.lineTo(x + t.w / 2 + t.w * 0.45, top - m - t.h * 0.28); ctx.lineTo(x + t.w / 2, top - m - t.h * 0.2); ctx.fill();
+  }
+}
+function drawGroundCastle() {
+  const g = G;
+  const zn = camZ + 0.6, zf = camZ + FAR;
+  // sea everywhere, then the stone causeway and a broad rampart on the right
+  ctx.fillStyle = seaGrad;
+  ctx.fillRect(-30, HOR, W + 60, H - HOR + 30);
+  ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineCap = 'round';
+  const WV = 4;
+  for (let k = Math.floor(zn / WV); k * WV < zf; k++) {
+    for (let j = 0; j < 3; j++) {
+      const h = hash(k * 3 + j, -1), z = k * WV + (h % 400) / 100;
+      const x = -ROAD - 1.4 - ((h >>> 9) % 1000) / 1000 * 9;
+      const a = P(x, 0, z), b = P(x - 0.9, 0, z);
+      if (!a || !b || a.dz > 60) continue;
+      ctx.lineWidth = Math.max(1, a.s * 0.06);
+      const w = Math.sin(g.t * 2 + k + j) * a.s * 0.15;
+      ctx.beginPath(); ctx.moveTo(a.x + w, a.y); ctx.lineTo(b.x + w, b.y); ctx.stroke();
+    }
+  }
+  ctx.fillStyle = '#7f8a74';
+  quad(P(ROAD + 0.5, 0, zn), P(ROAD + 30, 0, zn), P(ROAD + 30, 0, zf), P(ROAD + 0.5, 0, zf)); ctx.fill();
+  ctx.fillStyle = '#7a8170';
+  const L = 2.5;
+  for (let k = Math.floor(zn / L); k * L < zf; k++) {
+    if (k & 1) continue;
+    const z0 = Math.max(k * L, zn), z1 = Math.min((k + 1) * L, zf);
+    quad(P(ROAD + 0.5, 0, z0), P(ROAD + 30, 0, z0), P(ROAD + 30, 0, z1), P(ROAD + 0.5, 0, z1)); ctx.fill();
+  }
+  // causeway slabs
+  ctx.fillStyle = '#8d8a84';
+  quad(P(-ROAD - 0.5, 0, zn), P(ROAD + 0.5, 0, zn), P(ROAD + 0.5, 0, zf), P(-ROAD - 0.5, 0, zf)); ctx.fill();
+  for (let k = Math.floor(zn / L); k * L < zf; k++) {
+    const z0 = Math.max(k * L, zn), z1 = Math.min((k + 1) * L, zf);
+    for (let c = 0; c < 3; c++) {
+      if (((k + c) & 1) === 0) continue;
+      ctx.fillStyle = '#a29f98';
+      quad(P(-ROAD + c * 2, 0, z0), P(-ROAD + c * 2 + 2, 0, z0), P(-ROAD + c * 2 + 2, 0, z1), P(-ROAD + c * 2, 0, z1)); ctx.fill();
+    }
+  }
+  ctx.strokeStyle = 'rgba(60,56,50,.35)'; ctx.lineWidth = 1;
+  for (let k = Math.floor(zn / L); k * L < zf; k++) {
+    const a = P(-ROAD, 0, Math.max(k * L, zn)), b = P(ROAD, 0, Math.max(k * L, zn));
+    if (!a || !b || a.dz > 70) continue;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+  for (const lx of [-1, 1]) {
+    const a = P(lx, 0, zn), b = P(lx, 0, zf);
+    if (a && b) { ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+  }
+}
+// battlements on both sides: merlons every 1.2 m, drawn far to near
+function drawParapets() {
+  const zn = camZ + 0.8, zf = camZ + Math.min(FAR, 80), S = 1.2;
+  for (let k = Math.floor(zf / S); k * S >= zn - S; k--) {
+    const z0 = Math.max(k * S, zn), z1 = k * S + S;
+    if (z1 <= z0) continue;
+    const merlon = (k & 1) === 0, top = merlon ? 1.05 : 0.7;
+    for (const side of [-1, 1]) {
+      const xi = side * (ROAD + 0.2), xo = side * (ROAD + 0.55);
+      const a = P(xi, 0, z0), b = P(xi, 0, z1), c = P(xi, top, z1), d = P(xi, top, z0);
+      if (!a || !b || !c || !d) continue;
+      ctx.globalAlpha = fade(a.dz);
+      ctx.fillStyle = merlon ? '#b3aea3' : '#a7a297';
+      quad(a, b, c, d); ctx.fill();
+      ctx.fillStyle = '#cfcabf';
+      quad(d, c, P(xo, top, z1), P(xo, top, z0)); ctx.fill();
+      if (merlon && a.s > 10) { ctx.fillStyle = 'rgba(70,64,56,.25)'; ctx.fillRect(Math.min(a.x, b.x), d.y, Math.abs(a.x - b.x), Math.max(1, a.s * 0.04)); }
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+function drawPropsCastle() {
+  const S = 10, g = G;
+  const k0 = Math.floor((camZ + 1) / S), k1 = Math.floor((camZ + FAR) / S);
+  for (let k = k1; k >= k0; k--) {
+    const h = hash(k, 1), z = k * S + 3;
+    // right rampart: towers every fourth slot, banners and torches between
+    const p = P(ROAD + 1.6 + (h % 3) * 0.6, 0, z);
+    if (!p) continue;
+    ctx.globalAlpha = fade(p.dz);
+    const u = p.s;
+    if (k % 5 === 0 && k > 0) drawSign(p, Math.max(0, Math.round(g.len - z)));
+    else if (k % 4 === 1) drawTower(P(ROAD + 3.2, 0, z), u);
+    else drawBanner(p.x, p.y, u, k);
+    const q = P(-ROAD - 0.38, 1.05, k * S + 6);
+    if (q && k % 2 === 0) drawBanner(q.x, q.y, q.s * 0.8, k + 1);
+    ctx.globalAlpha = 1;
+  }
+}
+function drawTower(p, u) {
+  if (!p) return;
+  const w = 2.2 * u, h = 3.4 * u, x = p.x, y = p.y;
+  ctx.fillStyle = '#9e998e'; ctx.fillRect(x - w / 2, y - h, w, h);
+  ctx.fillStyle = '#8a857a'; ctx.fillRect(x - w / 2, y - h, w * 0.18, h);
+  const m = w / 5;
+  ctx.fillStyle = '#9e998e';
+  for (let i = 0; i < 5; i += 2) ctx.fillRect(x - w / 2 + i * m, y - h - m * 0.8, m, m * 0.8);
+  ctx.fillStyle = '#3a3630'; rr(x - w * 0.12, y - h * 0.62, w * 0.24, h * 0.2, w * 0.12); ctx.fill();
+  ctx.fillStyle = '#c8282e';
+  ctx.beginPath(); ctx.moveTo(x, y - h - m); ctx.lineTo(x, y - h - m - h * 0.32); ctx.lineTo(x + w * 0.4, y - h - m - h * 0.25); ctx.lineTo(x, y - h - m - h * 0.18); ctx.fill();
+}
+function drawBanner(x, y, u, k) {
+  const h = 2.1 * u;
+  if (h < 3) return;
+  ctx.fillStyle = '#4a3a2a'; ctx.fillRect(x - u * 0.04, y - h, u * 0.08, h);
+  const red = k % 3 !== 0, wave = Math.sin(G.t * 3 + k) * u * 0.05;
+  ctx.fillStyle = red ? '#c8282e' : '#2d6bff';
+  ctx.beginPath(); ctx.moveTo(x + u * 0.04, y - h); ctx.lineTo(x + u * 0.62, y - h + wave); ctx.lineTo(x + u * 0.55, y - h * 0.62 + wave); ctx.lineTo(x + u * 0.33, y - h * 0.7); ctx.lineTo(x + u * 0.04, y - h * 0.62); ctx.fill();
+  ctx.fillStyle = '#ffd23a'; circle(x + u * 0.3, y - h * 0.84, u * 0.08); ctx.fill();
+}
+
+// ---------- red soldiers (enemy infantry, facing the camera) ----------
+function redSprite(h, ph, big) {
+  const key = 'red' + (big ? 'B' : '') + ph + (QLOW ? 'n' : '') + h + '@' + DPR;
+  let s = SPR.get(key);
+  if (!s) {
+    if (SPR.size > 400) SPR.clear();
+    const ox = Math.ceil(h * 0.45 + 3), oy = Math.ceil(h * 1.3 + 3);
+    const c = document.createElement('canvas');
+    c.width = Math.ceil(ox * 2 * DPR); c.height = Math.ceil((oy + h * 0.12 + 3) * DPR);
+    const main = ctx;
+    ctx = c.getContext('2d');
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    drawRedRaw(ox, oy, h, ph, big, !QLOW);
+    ctx = main;
+    s = { c, ox, oy, w: c.width / DPR, h: c.height / DPR };
+    SPR.set(key, s);
+  }
+  return s;
+}
+function drawRedRaw(x, y, h, st, big, shadow) {
+  const w = h * 0.46;
+  if (shadow) { ctx.fillStyle = 'rgba(20,10,10,.25)'; oval(x, y, w * 0.62, w * 0.2); ctx.fill(); }
+  const l1 = h * 0.34 * (1 - 0.3 * Math.max(0, st)), l2 = h * 0.34 * (1 - 0.3 * Math.max(0, -st));
+  ctx.fillStyle = '#4a0e14';
+  ctx.fillRect(x - w * 0.34, y - l1, w * 0.27, l1);
+  ctx.fillRect(x + w * 0.07, y - l2, w * 0.27, l2);
+  ctx.fillStyle = '#e0282e'; rr(x - w * 0.5, y - h * 0.8, w, h * 0.48, w * 0.22); ctx.fill();
+  ctx.fillStyle = '#a3141c'; ctx.fillRect(x - w * 0.62, y - h * 0.74, w * 0.16, h * 0.3); ctx.fillRect(x + w * 0.46, y - h * 0.74, w * 0.16, h * 0.3);
+  ctx.fillStyle = '#ffd23a'; ctx.fillRect(x - w * 0.5, y - h * 0.5, w, h * 0.05);
+  // spear on the right, round shield on the left
+  ctx.fillStyle = '#6b4a2a'; ctx.fillRect(x + w * 0.5, y - h * 1.3, w * 0.09, h * 1.0);
+  ctx.fillStyle = '#d8dde3'; ctx.beginPath(); ctx.moveTo(x + w * 0.545, y - h * 1.45); ctx.lineTo(x + w * 0.63, y - h * 1.28); ctx.lineTo(x + w * 0.46, y - h * 1.28); ctx.fill();
+  if (big) { ctx.fillStyle = '#8a9099'; rr(x - w * 0.4, y - h * 0.78, w * 0.8, h * 0.26, w * 0.1); ctx.fill(); }
+  ctx.fillStyle = '#f1c7a0'; circle(x, y - h * 0.88, w * 0.32); ctx.fill();
+  ctx.fillStyle = '#2a1a1a'; ctx.fillRect(x - w * 0.16, y - h * 0.9, w * 0.08, w * 0.08); ctx.fillRect(x + w * 0.08, y - h * 0.9, w * 0.08, w * 0.08);
+  ctx.fillStyle = '#9aa0a8'; ctx.beginPath(); ctx.arc(x, y - h * 0.92, w * 0.36, Math.PI, TAU); ctx.fill();
+  ctx.fillRect(x - w * 0.4, y - h * 0.93, w * 0.8, h * 0.035);
+  ctx.fillStyle = '#e0282e'; oval(x, y - h * 1.1, w * 0.1, h * 0.09); ctx.fill();
+  ctx.fillStyle = '#b8323a'; circle(x - w * 0.55, y - h * 0.6, w * 0.26); ctx.fill();
+  ctx.fillStyle = '#ffd23a'; circle(x - w * 0.55, y - h * 0.6, w * 0.09); ctx.fill();
+}
+function drawRedman(x, y, u, t, i, moving, big) {
+  const h = Math.round(0.66 * u * (big ? 1.4 : 1) * 2) / 2;
+  if (h < 2) return;
+  if (h < 5 || QLOW) {
+    const w = h * 0.46;
+    ctx.fillStyle = '#e0282e'; ctx.fillRect(x - w * 0.5, y - h * 0.8, w, h * 0.8);
+    ctx.fillStyle = '#9aa0a8'; ctx.fillRect(x - w * 0.36, y - h * 1.08, w * 0.72, h * 0.3);
+    return;
+  }
+  const st = moving ? Math.sin(t * 13 + i * 1.7) : 0;
+  const s = redSprite(h, st > 0.5 ? 1 : st < -0.5 ? -1 : 0, big);
+  ctx.drawImage(s.c, x - s.ox, y - s.oy, s.w, s.h);
+}
+// a zombie in castle stages wears red: same body, same hitbox, enemy soldier look
+function drawRedZombie(zb, p, t) {
+  const u = p.s, T = ZT[zb.type];
+  ctx.globalAlpha = fade(p.dz);
+  const scale = T.h / 1.0;
+  drawRedman(p.x, p.y, u * scale, t, zb.ph * 10 | 0, zb.active, zb.big || zb.armor);
+  const h = T.h * u, w = h * 0.46;
+  if (zb.type === 'bloater') { ctx.fillStyle = '#ff8a3a'; rr(p.x - w * 0.4, p.y - h * 0.75, w * 0.8, h * 0.4, w * 0.12); ctx.fill(); ctx.fillStyle = '#2a1a10'; ctx.fillRect(p.x - w * 0.4, p.y - h * 0.58, w * 0.8, h * 0.04); }
+  if (zb.elite) {
+    ctx.fillStyle = '#ffc21a';
+    const cy = p.y - h * 1.05, hx = p.x;
+    ctx.beginPath(); ctx.moveTo(hx - w * 0.3, cy); ctx.lineTo(hx - w * 0.3, cy - w * 0.3); ctx.lineTo(hx - w * 0.15, cy - w * 0.12); ctx.lineTo(hx, cy - w * 0.36); ctx.lineTo(hx + w * 0.15, cy - w * 0.12); ctx.lineTo(hx + w * 0.3, cy - w * 0.3); ctx.lineTo(hx + w * 0.3, cy); ctx.fill();
+  }
+  if (zb.flash > 0 && h > 6) { ctx.fillStyle = 'rgba(255,255,255,.55)'; rr(p.x - w * 0.5, p.y - h * 0.8, w, h * 0.48, w * 0.2); ctx.fill(); }
+  const bar = zb.big || zb.elite || zb.type === 'bloater' || (G.stage >= 11 && zb.hp < zb.max);
+  if (bar && h > 6) {
+    const bw = zb.big || zb.elite ? w * 1.4 : w, bh = zb.big || zb.elite ? Math.max(3, h * 0.07) : 2, by = p.y - h * 1.35;
+    ctx.fillStyle = 'rgba(28,26,22,.8)'; ctx.fillRect(p.x - bw / 2, by, bw, bh);
+    ctx.fillStyle = '#e23a4c'; ctx.fillRect(p.x - bw / 2, by, bw * clamp(zb.hp / zb.max, 0, 1), bh);
+  }
+  if (zb.elite && h > 30) pill('적 기사단장', p.x, p.y - h * 1.5, Math.max(11, h * 0.09), 'rgba(28,26,22,.85)', '#ffc21a');
+  ctx.globalAlpha = 1;
+}
+function drawBarracks(o, p, t) {
+  const u = p.s, x = p.x, y = p.y;
+  const bw = 1.9 * u, bh = 1.4 * u;
+  if (bw < 3) return;
+  ctx.fillStyle = 'rgba(30,20,10,.3)'; oval(x, y, bw * 0.6, bw * 0.12); ctx.fill();
+  ctx.fillStyle = o.flash > 0 ? '#c9c4b8' : '#a9a397';
+  ctx.fillRect(x - bw / 2, y - bh, bw, bh);
+  ctx.fillStyle = '#c8282e';
+  ctx.beginPath(); ctx.moveTo(x - bw * 0.58, y - bh); ctx.lineTo(x, y - bh * 1.55); ctx.lineTo(x + bw * 0.58, y - bh); ctx.fill();
+  ctx.fillStyle = '#3a3630'; rr(x - bw * 0.18, y - bh * 0.62, bw * 0.36, bh * 0.62, bw * 0.16); ctx.fill();
+  ctx.fillStyle = '#e0282e';
+  for (let i = 0; i < 2; i++) { const yy = y - bh * 0.2 - Math.abs(Math.sin(t * 4 + i * 2)) * bh * 0.1; circle(x - bw * 0.06 + i * bw * 0.12, yy, bw * 0.05); ctx.fill(); }
+  hpBar(x, y - bh * 1.55 - Math.max(6, u * 0.25), Math.max(30, bw), Math.max(4, u * 0.14), o.hp / o.max, '#e23a4c');
+  if (u > 9) label('적 병영', x, y - bh * 1.55 - Math.max(14, u * 0.55), Math.max(11, u * 0.3), '#ff6d7c', '#1c1a16');
+}
+
+// ---------- big outlined numbers (ad style), shared by both armies ----------
+function bigNum(txt, x, y, fs, under) {
+  fs = snapSz(Math.min(fs, 96));
+  if (x < -6 * fs || x > W + 6 * fs) return;
+  ctx.font = fontOf(fs, DISPLAY);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+  ctx.lineWidth = Math.max(4, fs * 0.24);
+  ctx.strokeStyle = under; ctx.strokeText(txt, x, y + Math.max(3, fs * 0.1));
+  ctx.strokeStyle = '#14141c'; ctx.strokeText(txt, x, y);
+  ctx.fillStyle = '#fff'; ctx.fillText(txt, x, y);
+}
+
+// ---------- the red army block and red squads ----------
+const ARMY_COLS = 13;
+function drawArmy(ar, t) {
+  const g = G;
+  if (ar.count <= 0) return;
+  const zf = ar.z - camZ;
+  if (zf < 0.6 || zf > FAR) return;
+  const moving = g.clash && g.clash.st === 'advance';
+  const cols = ARMY_COLS, rows = Math.ceil(ar.count / cols), gap = 0.42;
+  const depth = Math.min(rows * gap, 6 + Math.sqrt(rows) * 0.9);
+  const sprRows = Math.min(rows, QLOW ? 3 : 7);
+  // carpet impostor for the deep ranks
+  if (rows > sprRows) {
+    const z0 = ar.z + sprRows * gap, z1 = ar.z + depth;
+    ctx.globalAlpha = fade(z1 - camZ);
+    ctx.fillStyle = '#8a1218';
+    const a = P(-ROAD + 0.1, 0.7, z0), b = P(ROAD - 0.1, 0.7, z0), c = P(ROAD - 0.1, 0.7, z1), d = P(-ROAD + 0.1, 0.7, z1);
+    const a0 = P(-ROAD + 0.1, 0, z0), b0 = P(ROAD - 0.1, 0, z0);
+    if (a && b && c && d && a0 && b0) {
+      quad(d, c, b, a); ctx.fill();
+      ctx.fillStyle = '#c21f26'; quad(a, b, b0, a0); ctx.fill();
+      const nr = Math.min(28, Math.ceil((z1 - z0) / gap));
+      for (let r = nr; r >= 0; r--) {
+        const z = z0 + (z1 - z0) * r / nr;
+        const l = P(-ROAD + 0.2, 0.72, z), rt = P(ROAD - 0.2, 0.72, z);
+        if (!l || !rt) continue;
+        const sz = Math.max(1.5, l.s * 0.14);
+        ctx.fillStyle = r & 1 ? '#9aa0a8' : '#b3b9c0';
+        const n = Math.max(4, Math.min(cols, Math.round((rt.x - l.x) / (sz * 2.2))));
+        for (let i = 0; i < n; i++) ctx.fillRect(l.x + (rt.x - l.x) * (i + (r & 1 ? 0.75 : 0.25)) / n - sz / 2, l.y - sz / 2, sz, sz * 0.8);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+  // front ranks as real sprites, back to front
+  const front = Math.min(ar.count, sprRows * cols);
+  for (let r = Math.min(sprRows, rows) - 1; r >= 0; r--) {
+    const inRow = Math.min(cols, front - r * cols);
+    if (inRow <= 0) continue;
+    for (let i = 0; i < inRow; i++) {
+      const fx = -ROAD + 0.35 + (2 * ROAD - 0.7) * (i + (r & 1 ? 0.5 : 0) + (cols - inRow) / 2) / cols;
+      const p = P(fx, 0, ar.z + r * gap);
+      if (!p) continue;
+      ctx.globalAlpha = fade(p.dz);
+      drawRedman(p.x, p.y, p.s, t, r * cols + i, moving || (g.clash && g.clash.st === 'melee'), false);
+    }
+  }
+  ctx.globalAlpha = 1;
+  if (ar.flash > 0) {
+    const a = P(-ROAD, 1.0, ar.z), b = P(ROAD, 0, ar.z);
+    if (a && b) { ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y); }
+  }
+  const q = P(0, 2.1, ar.z + depth * 0.4);
+  if (q && zf < FAR - 4) bigNum(fmt(ar.count), q.x, q.y, clamp(q.s * 0.75, 16, 54), '#e0282e');
+}
+function drawRedSquad(o, p, t) {
+  const n = Math.min(o.count, 60);
+  const k = o.hw / (0.22 * Math.sqrt(Math.max(1, n)) + 0.3);
+  const moving = o.active && G.phase === 'run';
+  for (const i of DRAW_ORDER) {
+    if (i >= n) continue;
+    const f = FORM[i];
+    const q = P(o.x + f.x * k, 0, o.z - f.z * k);
+    if (!q) continue;
+    drawRedman(q.x, q.y, q.s, t, i, moving, false);
+  }
+  const q = P(o.x, 1.7, o.z);
+  if (q) bigNum(fmt(o.count), q.x, q.y, clamp(q.s * 0.6, 14, 40), '#e0282e');
+}
+
+// ---------- volley lightning ----------
+function drawBeams() {
+  const c = G.clash;
+  if (!c || !c.beams.length) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (const b of c.beams) {
+    const pts = [];
+    for (let i = 0; i <= 6; i++) {
+      const k = i / 6, j = i && i < 6 ? Math.sin(b.seed + i * 12.9898) * 0.35 : 0;
+      const q = P(lerp(b.x0, b.x1, k) + j, 0.9 + Math.sin(Math.PI * k) * 1.4, lerp(b.z0, b.z1, k));
+      if (q) pts.push(q);
+    }
+    if (pts.length < 2) continue;
+    const a = clamp(b.life / 0.16, 0, 1);
+    for (const [col, wd] of [['rgba(58,224,255,' + 0.45 * a + ')', 7], ['rgba(45,107,255,' + 0.5 * a + ')', 4], ['rgba(255,255,255,' + a + ')', 1.6]]) {
+      ctx.strokeStyle = col; ctx.lineWidth = wd;
+      ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
 }
 
 // ---------- sound ----------
@@ -3052,7 +3636,7 @@ function noise(dur, vol, freq) {
   s.connect(f).connect(gn).connect(AC.destination); s.start(t); s.stop(t + dur);
 }
 const sfxLast = {};
-const SFX_GAP = { pop: 0.05, tick: 0.06, hurt: 0.08, tok: 0.035, rifle: 0.07, minigun: 0.045, shotgun: 0.12, rocket: 0.15, laser: 0.09, flame: 0.12, boom: 0.08, beep: 0.1, thud: 0.08, stomp: 0.1 };
+const SFX_GAP = { zap: 0.04, pop: 0.05, tick: 0.06, hurt: 0.08, tok: 0.035, rifle: 0.07, minigun: 0.045, shotgun: 0.12, rocket: 0.15, laser: 0.09, flame: 0.12, boom: 0.08, beep: 0.1, thud: 0.08, stomp: 0.1 };
 function sfx(n, arg) {
   if (save.mute || !AC || AC.state !== 'running') return;
   const now = AC.currentTime;
@@ -3084,6 +3668,10 @@ function sfx(n, arg) {
     case 'rocket': blip(220, 0.22, 'sawtooth', 0.03, 0.4); break;
     case 'laser': blip(1600, 0.08, 'sine', 0.03, 0.5); break;
     case 'flame': noise(0.15, 0.03, 700); break;
+    case 'charge': arp([392, 523, 659, 784, 1047], 0.07, 'sawtooth', 0.05); noise(0.5, 0.08, 1800); break;
+    case 'zap': blip(rand(1400, 2200), 0.06, 'sawtooth', 0.02, 0.3); noise(0.05, 0.04, 4000); break;
+    case 'clash': noise(0.6, 0.18, 500); blip(90, 0.4, 'sine', 0.1, 0.5); break;
+    case 'buzz': blip(110, 0.5, 'square', 0.06, 0.9); break;
   }
 }
 function vibrate(ms) { if (!save.mute && navigator.vibrate) { try { navigator.vibrate(ms); } catch (e) {} } }
@@ -3098,7 +3686,25 @@ function paintMute() {
 // ---------- screens ----------
 const hud = $('hud'), menu = $('menu'), result = $('result');
 const upButtons = {};
-const tierTag = n => n % 10 === 0 ? '군단장' : n % 10 === 5 ? '대형' : n % 10 === 8 ? '보급' : '';
+const tierTag = n => {
+  const t = n % 10 === 0 ? '군단장' : n % 10 === 5 ? '대형' : n % 10 === 8 ? '보급' : '';
+  return stageKind(n) === 'army' ? (t ? t + ' · 결전' : '결전') : t;
+};
+// big outlined ad-style caption in the middle of the screen
+function caption(text, sub, red, dur = 1.6) {
+  const c = $('hCap');
+  c.firstChild.textContent = text;
+  c.firstChild.style.fontSize = text.length > 9 ? 'clamp(26px, 8.6vw, 44px)' : '';
+  c.lastChild.textContent = sub || '';
+  c.lastChild.hidden = !sub;
+  c.classList.toggle('red', !!red);
+  c.hidden = false;
+  $('hBanner').hidden = true; banner.q = null; banner.pri = 0;
+  $('hSkill').hidden = true;
+  c.style.animation = 'none'; void c.offsetWidth; c.style.animation = '';
+  clearTimeout(caption.t);
+  caption.t = setTimeout(() => { c.hidden = true; }, dur * 1000);
+}
 function buildUps() {
   const box = $('ups');
   for (const k of UKEYS) {
@@ -3131,7 +3737,8 @@ function renderMenu() {
   $('mTier').textContent = tierTag(n) ? '· ' + tierTag(n) : '';
   $('mCoins').textContent = fmt(save.coins);
   const intros = Object.keys(SEGDEF).filter(k => k !== 'wave' && k !== 'split' && SEGDEF[k].intro <= n && !save.seen['seg_' + k]);
-  $('mBrief').textContent = `보스: ${ARCH[bossFor(n)].name}` + (intros.length ? ` · 새 기믹: ${intros.map(k => SEGNAME[k]).join(', ')}` : n === 2 ? ' · 무기 상자 등장' : '');
+  const armyN = stageKind(n) === 'army' ? (G && G.stage === n && G.army ? G.army.max : pretty(K.ARMY_RATIO * makeModel(n).C)) : 0;
+  $('mBrief').textContent = (armyN ? `결전: 적군 ${fmt(armyN)} · ${ARCH.giant.name}` : `보스: ${ARCH[bossFor(n)].name}`) + (intros.length ? ` · 새 기믹: ${intros.map(k => SEGNAME[k]).join(', ')}` : n === 2 ? ' · 무기 상자 등장' : '');
   for (const k of UKEYS) {
     const b = upButtons[k], u = UPS[k], lv = save.up[k];
     const locked = u.unlock && n < u.unlock, maxed = lv >= u.max;
@@ -3178,6 +3785,7 @@ function showMenu() {
   G.pop.fill(-10);
   camZ = -CAM_BACK; camX = 0;
   hud.hidden = true; result.hidden = true; menu.hidden = false;
+  $('hCap').hidden = true;
   renderMenu();
 }
 function startPlay() {
@@ -3195,7 +3803,9 @@ function startPlay() {
   banner.q = null; banner.pri = 0; showHint.key = null;
   hideLanes();
   for (const k in hudCache) delete hudCache[k];
-  showHint(null, n === 1 ? '좌우로 드래그해서 이동' : `작전 ${n} · 보스: ${ARCH[G.bossCfg.arch].name}`, n === 1 ? '게이트를 쏘면 숫자가 올라가요' : G.pity ? `지원 사격 +${Math.round(K.PITY_DPS * 100 * G.pity)}%` : '');
+  $('hCap').hidden = true;
+  if (G.army) showHint(null, `작전 ${n} · 결전! 적군 ${fmt(G.army.max)}명`, '거인 장군을 쓰러뜨리면 전군 돌격');
+  else showHint(null, n === 1 ? '좌우로 드래그해서 이동' : `작전 ${n} · 보스: ${ARCH[G.bossCfg.arch].name}`, n === 1 ? '게이트를 쏘면 숫자가 올라가요' : G.pity ? `지원 사격 +${Math.round(K.PITY_DPS * 100 * G.pity)}%` : '');
 }
 let lanesSeg = null, lanesObj = null;
 function showLanes(seg, o) {
@@ -3207,7 +3817,7 @@ function showLanes(seg, o) {
     d.textContent = '';
     const b = document.createElement('b'), s = document.createElement('span');
     if (l === seg.lanes.stream) { d.className = 'l-stream'; b.textContent = `+${fmt(k)} 계속`; s.textContent = '병력 줍기'; }
-    else if (l === seg.lanes.nest) { d.className = 'l-nest'; b.textContent = '좀비 둥지'; s.textContent = '부수면 멈춤'; }
+    else if (l === seg.lanes.nest) { d.className = 'l-nest'; b.textContent = castleOn() ? '적 병영' : '좀비 둥지'; s.textContent = '부수면 멈춤'; }
     else { d.className = 'l-reward'; b.textContent = rewardText(o); s.textContent = 'HP ' + fmt(o.hp); }
     d.append(b, s);
   }
@@ -3218,7 +3828,8 @@ function setupBossBar() {
   const bs = G.boss;
   if (!bs) return;
   $('hBoss').hidden = false;
-  $('hBossName').textContent = bs.A.name + (TIER_NAME[bs.tier] ? ' · ' + TIER_NAME[bs.tier] : '');
+  const nm = (G.army ? '적장 · ' : '') + bs.A.name + (TIER_NAME[bs.tier] ? ' · ' + TIER_NAME[bs.tier] : '');
+  $('hBossName').textContent = nm; hudCache.hBossName = nm;
   const tr = $('hBossTrack');
   tr.querySelectorAll('s').forEach(e => e.remove());
   const marks = bs.tier === 'war' ? [0.66, 0.33] : G.stage >= 5 ? [0.5] : [];
@@ -3241,13 +3852,15 @@ function showResult(win, coins, prog) {
   if (g.stats.dodgeChances) chip(`회피 ${g.stats.dodges}/${g.stats.dodgeChances}`);
   chip(`${WEAPONS[g.weapon.id].name} ${stars(g.weapon.star)}`);
   let tip;
-  if (win) tip = `다음은 작전 ${n + 1}${tierTag(n + 1) ? ' · ' + tierTag(n + 1) : ''}. 좀비가 조금 더 단단해져요.`;
-  else {
+  if (win) tip = `다음은 작전 ${n + 1}${tierTag(n + 1) ? ' · ' + tierTag(n + 1) : ''}. ${stageKind(n + 1) === 'army' ? '성벽 끝에서 적군이 기다려요.' : '좀비가 조금 더 단단해져요.'}`;
+  else if (g.clash && g.army && g.army.count > 0) {
+    tip = `적군이 ${fmt(g.army.count)}명 더 많았어요. 돌격 전에 인원을 늘리고, 화력이 높을수록 번개 일제사격이 더 많이 쓰러뜨려요. 다음 도전엔 지원 사격 +${Math.round(K.PITY_DPS * 100 * (save.fails[n] || 1))}%`;
+  } else {
     let worst = null, wn = 0;
     for (const [k, v] of Object.entries(g.stats.lossBy)) if (v > wn) { wn = v; worst = k; }
     tip = (worst && LOSS_TIP[worst] ? LOSS_TIP[worst](wn) : '정비에서 화력과 병력을 올려보세요.') + ` 다음 도전엔 지원 사격 +${Math.round(K.PITY_DPS * 100 * (save.fails[n] || 1))}%`;
   }
-  $('rTip').textContent = tip;
+  $('rTip').textContent = win ? tip : themed(tip);
   $('rNext').textContent = win ? '다음 작전' : '다시 출격';
   $('hSkill').hidden = true;
   $('hBanner').hidden = true;
@@ -3275,8 +3888,14 @@ function updateHud() {
   setText('hKills', `처치 ${fmt(g.kills)}`);
   setText('hAssist', g.pity ? `지원 사격 +${Math.round(K.PITY_DPS * 100 * g.pity)}%` : '');
   $('hAssist').hidden = !g.pity;
-  const bs = g.boss;
-  if (bs) {
+  const bs = g.boss, ar = g.army;
+  if (g.clash && ar) {
+    // after the general falls the bar tracks the red army
+    setText('hBossName', '적군 · 돌격');
+    $('hBossFill').style.width = (ar.count / ar.max * 100).toFixed(1) + '%';
+    setText('hBossHp', fmt(ar.count));
+    $('hEnr').hidden = true;
+  } else if (bs) {
     $('hBossFill').style.width = (bs.hp / bs.max * 100).toFixed(1) + '%';
     setText('hBossHp', fmt(Math.ceil(bs.hp)));
     const enr = $('hEnr');
@@ -3324,7 +3943,7 @@ $('muteBtn').addEventListener('click', () => { save.mute = !save.mute; persist()
 addEventListener('resize', resize);
 
 // ---------- loop ----------
-let last = 0, qAcc = 0, qN = 0, qSlow = 0, qFast = 0;
+let last = 0, qAcc = 0, qN = 0, qSlow = 0, qFast = 0, testHold = false;
 function frame(ts) {
   const iv = ts - last;
   const real = Math.min(0.05, Math.max(0, iv / 1000));
@@ -3335,7 +3954,8 @@ function frame(ts) {
   if (g.hs > 0) { g.hs -= real; dt *= 0.12; }
   else if (g.slow > 0) { g.slow -= real; dt *= 0.5; }
   else if (g.dslow > 0) { g.dslow -= real; dt *= 0.3; }
-  if (mode === 'play') update(dt);
+  if (testHold) {}
+  else if (mode === 'play') update(dt);
   else { g.t += dt; updateFx(dt); }
   render();
   updateHud();
@@ -3388,6 +4008,7 @@ window.__toproad = {
   refEM, refLM, Cn, makeModel, BTK, vis, Tb, Zf, fmt, pretty, laneOf, LANES, WEAPONS, SKILLS, ARCH, UPS, safestLane, squadDPS,
   setLevels(o) { Object.assign(save.up, o); },
   setSeedOffset(k) { K.SEED_OFF = k; },
+  set hold(v) { testHold = v; },
 };
 
 window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});
