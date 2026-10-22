@@ -308,6 +308,9 @@ const K = {
   // the squad halts ZPILE_STOP short of the wall for up to ZPILE_HOLD s; whatever still stands then floods over
   ZPILE_ON: 1, ZPILE_FROM: 11, ZPILE_TMAX: 5, ZPILE_N0: 30, ZPILE_NK: 1.0, ZPILE_NMIN: 36, ZPILE_NMAX: 75,
   ZPILE_T: 3.5, ZPILE_EXP: 0.5, ZPILE_DRAIN: 6, ZPILE_HEAVY: 1.5, ZPILE_SEE: 80, ZPILE_STOP: 14, ZPILE_HOLD: 5, ZPILE_COVER: 0.4, ZPILE_FLOOD_T: 2.5, ZPILE_FLOOD_AHEAD: 12,
+  // shots per soldier per second and the share of each weapon's visual cap; damage per shot scales up so DPS is unchanged.
+  // a shot that kills carries OVERKILL of its leftover damage on to the next target (1 = no damage wasted on overkill)
+  FIRE_RATE: 0.8, FIRE_CAP: 0.4, OVERKILL: 1,
   MAXDRAW: 150, BULLET_CAP: 140, PART_CAP: 520, TEXT_CAP: 30, FLYER_CAP: 24, MAXMEN: 9999999, SEED_OFF: 0,
 };
 
@@ -1279,7 +1282,8 @@ function squadDPS(noTemp) {
 }
 function fireWeapon(dt) {
   const g = G, W = WEAPONS[g.weapon.id], m = g.dims.m;
-  const ev = Math.min(g.count * 2 * rateMul(), W.cap(m));
+  // rockets kill everything in their blast already, so bigger rockets would only waste damage: they keep the old rate
+  const ev = W.splash ? Math.min(g.count * 2 * rateMul(), W.cap(m)) : Math.min(g.count * K.FIRE_RATE * rateMul(), W.cap(m) * K.FIRE_CAP);
   if (ev <= 0) return;
   const per = squadDPS() / (ev * W.pellets);
   g.fireAcc += ev * dt;
@@ -1329,7 +1333,7 @@ function shoot(W, per) {
       pierce: W.pierce, hits: 0, splash: W.splash, ap: W.ap, noGate: !!W.noGate, fall: W.fall, hit: null, star: g.weapon.star });
     g.carry = 0;
   }
-  if (Math.random() < 0.25) sfx(g.weapon.id);
+  if (Math.random() < 0.5) sfx(g.weapon.id);
 }
 const PIERCE_MUL = [1, 0.75, 0.5];
 function hitTest(b, z0) {
@@ -1369,39 +1373,52 @@ function updateBullets(dt) {
     const z0 = b.z;
     b.z += b.spd * dt; b.x += b.vx * dt;
     let spent = false;
+    // fewer, heavier shots pierce proportionally more targets (laser 3 -> 8, flame 2 -> 5)
+    const pc = b.pierce ? Math.max(1, Math.round(b.pierce / K.FIRE_CAP)) : 1;
     // a piercing bullet resolves every target it swept this frame, so pierce does not depend on frame rate
-    for (let guard = 0; live && guard < 4; guard++) {
+    for (let guard = 0; live && guard < 4 + pc; guard++) {
       const h = hitTest(b, z0);
       if (!h) break;
       let dmg = b.dmg * (PIERCE_MUL[b.hits] || 0.5);
       if (b.fall) { const tr = b.z - b.z0, [d0, d1, mul] = b.fall; if (tr > d0) dmg *= lerp(1, mul, clamp((tr - d0) / (d1 - d0), 0, 1)); }
-      if (h.kind === 1) hitZombie(h.obj, dmg, b);
+      if (h.kind === 1) {
+        const ov = hitZombie(h.obj, dmg, b);
+        if (ov > 0 && !b.splash && !b.pierce && K.OVERKILL > 0) {
+          // the shot punches through: part of the leftover damage flies on, and it does not count as a pierce
+          b.dmg *= K.OVERKILL * ov / dmg;
+          (b.hit || (b.hit = [])).push(h.obj);
+          continue;
+        }
+      }
       else if (h.kind === 2) hitObj(h.obj, dmg, b);
       else if (h.kind === 3) hitPanel(h.obj, h.gate, dmg);
       else if (h.kind === 4) hitBoss(h.obj, dmg);
       else hitArmy(h.obj, dmg, b);
       if (b.splash && h.kind <= 2) { splash(b.x, h.obj.z, b.splash, dmg * 0.6, h.obj); burst(b.x, 0.6, h.obj.z, 6, FIRE, 3); }
       b.hits++;
-      if (h.kind >= 3 || b.hits >= Math.max(1, b.pierce)) { spent = true; break; }
+      if (h.kind >= 3 || b.hits >= pc) { spent = true; break; }
       (b.hit || (b.hit = [])).push(h.obj);
     }
     if (spent || b.z - b.z0 > b.range || Math.abs(b.x) > ROAD + 4) g.bullets.splice(k, 1);
   }
 }
+// returns the damage left over after a kill (in the shot's own units), 0 otherwise
 function hitZombie(zb, dmg, b) {
-  if (zb.dead) return;
-  if (zb.armor && !b.ap) { dmg *= 0.4; if (Math.random() < 0.2) burst(zb.x, 0.9, zb.z, 1, ['#fff6c2'], 2, 0.06); }
+  if (zb.dead) return 0;
+  let am = 1;
+  if (zb.armor && !b.ap) { am = 0.4; dmg *= 0.4; if (Math.random() < 0.2) burst(zb.x, 0.9, zb.z, 1, ['#fff6c2'], 2, 0.06); }
   if (zb.plank > 0 && !b.pierce && !b.splash) {
     zb.plank -= dmg;
     if (G.t - (zb.flashT ?? -1) > 0.2) { zb.flash = 0.07; zb.flashT = G.t; }
-    if (zb.plank >= 0) return;
+    if (zb.plank >= 0) return 0;
     dmg = -zb.plank; zb.plank = 0;
     burst(zb.x, 0.7, zb.z - 0.3, 6, ['#8a6b4a', '#5a4a3a'], 3);
   }
   zb.hp -= dmg;
   if (G.t - (zb.flashT ?? -1) > 0.2) { zb.flash = 0.07; zb.flashT = G.t; }
   if (!zb.elite) zb.z += zb.big ? 0.03 : 0.12;
-  if (zb.hp <= 0) kill(zb);
+  if (zb.hp <= 0) { const ov = -zb.hp / am; kill(zb); return ov; }
+  return 0;
 }
 const RED = ['#e0282e', '#ff8a8a', '#7a1a1a'];
 // before the charge the shield wall holds; during the charge a remnant always reaches the line, so the crash plays out
@@ -1456,8 +1473,8 @@ function hitZPile(o, dmg, b) {
     const fl = Math.floor(o.tiers[c]), cover = fl <= o.hid ? K.ZPILE_COVER : 1;
     if (cover < 1 && G.t - o.blockT > 0.3) { o.blockT = G.t; burst(colX(c, ZCOLS), o.wall.h, o.wallZ, 2, ['#c9b07a', '#fff6c2'], 2, 0.08); }
     o.acc[c] += raw * cover / (1 + pw[0] * K.PILE_ARMOR * (fl - 1));
-    // one body per hit: the cover rule changes with the new top body, so the next hit re-reads it
-    if (o.acc[c] >= o.unitHP && o.tiers[c] >= 1 && o.count > 0) {
+    // a hit drops as many bodies as the shot is heavier than before (one at the old fire rate); cover is re-read on the next hit
+    for (let q = 0, qn = Math.ceil(1 / K.FIRE_CAP); q < qn && o.acc[c] >= o.unitHP && o.tiers[c] >= 1 && o.count > 0; q++) {
       o.acc[c] -= o.unitHP;
       o.tiers[c] -= 1; o.count--; o.killed++; G.kills++;
       pileTumble(o.fx, colX(c, ZCOLS), K.PILE_DY * Math.floor(o.tiers[c]), o.z, rand(1, 2), cols);
@@ -2722,9 +2739,14 @@ function drawSky() {
 }
 
 const LANE_TINT = ['rgba(52,170,255,.20)', 'rgba(226,58,76,.15)', 'rgba(255,194,26,.22)'];
+// the scenery (road, walls, sea, roadside props) is drawn from a fixed camera, so it stays put while the squad holds
+// its ground; gates, enemies, lane tints and the finish line use the moving camera and come toward the squad
+const ENV_Z = -CAM_BACK;
 function drawGround() {
-  const g = G, castle = castleOn();
-  const L = 5, zn = camZ + 0.6, zf = camZ + FAR;
+  const g = G, castle = castleOn(), cz = camZ;
+  camZ = ENV_Z;
+  const L = 5;
+  let zn = camZ + 0.6, zf = camZ + FAR;
   if (castle) drawGroundCastle();
   else {
   ctx.fillStyle = '#e2bb80';
@@ -2745,6 +2767,21 @@ function drawGround() {
     quad(P(-ROAD, 0, z0), P(ROAD, 0, z0), P(ROAD, 0, z1), P(-ROAD, 0, z1)); ctx.fill();
   }
   }
+  const C = 2;
+  for (let k = Math.floor(zn / C); !castle && k * C < zf; k++) {
+    const z0 = Math.max(k * C, zn), z1 = Math.min((k + 1) * C, zf);
+    ctx.fillStyle = k & 1 ? '#25221d' : '#ffc21a';
+    quad(P(-ROAD - 0.35, 0, z0), P(-ROAD, 0, z0), P(-ROAD, 0, z1), P(-ROAD - 0.35, 0, z1)); ctx.fill();
+    quad(P(ROAD, 0, z0), P(ROAD + 0.35, 0, z0), P(ROAD + 0.35, 0, z1), P(ROAD, 0, z1)); ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(246,239,222,.85)';
+  const D = 6;
+  for (let k = Math.floor(zn / D); !castle && k * D < zf; k++) {
+    const z0 = Math.max(k * D, zn), z1 = Math.min(k * D + 2.2, zf);
+    if (z1 <= z0) continue;
+    for (const lx of [-1, 1]) { quad(P(lx - 0.06, 0, z0), P(lx + 0.06, 0, z0), P(lx + 0.06, 0, z1), P(lx - 0.06, 0, z1)); ctx.fill(); }
+  }
+  camZ = cz; zn = camZ + 0.6; zf = camZ + FAR;
   // lane-split floors: blue stream, red nest, gold vault
   for (const sg of g.segs) {
     if (sg.type !== 'split' || sg.z1 < zn || sg.z0 - 6 > zf) continue;
@@ -2767,20 +2804,6 @@ function drawGround() {
       }
     }
   }
-  const C = 2;
-  for (let k = Math.floor(zn / C); !castle && k * C < zf; k++) {
-    const z0 = Math.max(k * C, zn), z1 = Math.min((k + 1) * C, zf);
-    ctx.fillStyle = k & 1 ? '#25221d' : '#ffc21a';
-    quad(P(-ROAD - 0.35, 0, z0), P(-ROAD, 0, z0), P(-ROAD, 0, z1), P(-ROAD - 0.35, 0, z1)); ctx.fill();
-    quad(P(ROAD, 0, z0), P(ROAD + 0.35, 0, z0), P(ROAD + 0.35, 0, z1), P(ROAD, 0, z1)); ctx.fill();
-  }
-  ctx.fillStyle = 'rgba(246,239,222,.85)';
-  const D = 6;
-  for (let k = Math.floor(zn / D); !castle && k * D < zf; k++) {
-    const z0 = Math.max(k * D, zn), z1 = Math.min(k * D + 2.2, zf);
-    if (z1 <= z0) continue;
-    for (const lx of [-1, 1]) { quad(P(lx - 0.06, 0, z0), P(lx + 0.06, 0, z0), P(lx + 0.06, 0, z1), P(lx - 0.06, 0, z1)); ctx.fill(); }
-  }
   if (g.len - camZ > 0.6 && g.len - camZ < FAR) {
     for (let i = 0; i < 8; i++) {
       const x0 = -ROAD + i * ROAD / 4;
@@ -2788,34 +2811,45 @@ function drawGround() {
       quad(P(x0, 0, g.len - 0.35), P(x0 + ROAD / 4, 0, g.len - 0.35), P(x0 + ROAD / 4, 0, g.len + 0.35), P(x0, 0, g.len + 0.35)); ctx.fill();
     }
   }
-  if (castle) drawParapets();
+  if (castle) { camZ = ENV_Z; drawParapets(); camZ = cz; }
   ctx.fillStyle = castle ? hazeGradC : hazeGrad;
   ctx.fillRect(-30, HOR, W + 60, H * 0.13);
 }
 
 function hash(i, s) { let h = Math.imul(i * 2 + (s > 0 ? 1 : 0) + 7, 2654435761) >>> 0; h ^= h >>> 15; return Math.imul(h, 2246822519) >>> 0; }
 function drawProps() {
-  if (castleOn()) { drawPropsCastle(); return; }
+  const cz = camZ;
+  camZ = ENV_Z;
+  if (castleOn()) drawPropsCastle(); else drawPropsDesert();
+  camZ = cz;
+  // distance markers are pieces on the road: they come toward the squad every 50 m
+  for (let k = Math.max(1, Math.ceil((camZ + 1) / 50)); k * 50 < camZ + FAR; k++) {
+    const z = k * 50;
+    if (z > G.len) break;
+    const p = P(castleOn() ? ROAD + 1.6 : ROAD + 0.9, 0, z);
+    if (!p) continue;
+    ctx.globalAlpha = fade(p.dz);
+    drawSign(p, Math.max(0, Math.round(G.len - z)));
+    ctx.globalAlpha = 1;
+  }
+}
+function drawPropsDesert() {
   const S = 10;
   const k0 = Math.floor((camZ + 1) / S), k1 = Math.floor((camZ + FAR) / S);
   for (let k = k1; k >= k0; k--) {
     for (const side of [-1, 1]) {
       const h = hash(k, side);
       const z = k * S + (h % 5);
-      const isSign = side > 0 && k % 5 === 0 && k > 0;
-      const x = side * (ROAD + (isSign ? 0.9 : 1.3 + ((h >>> 8) % 100) / 100 * 3.2));
+      const x = side * (ROAD + 1.3 + ((h >>> 8) % 100) / 100 * 3.2);
       const p = P(x, 0, z);
       if (!p) continue;
       ctx.globalAlpha = fade(p.dz);
       const u = p.s;
-      if (isSign) drawSign(p, Math.max(0, Math.round(G.len - z)));
-      else {
-        const t = (h >>> 16) % 4;
-        if (t === 0) drawHedgehog(p.x, p.y, u);
-        else if (t === 1) drawSandbags(p.x, p.y, u);
-        else if (t === 2) drawDrums(p.x, p.y, u);
-        else drawRock(p.x, p.y, u, h);
-      }
+      const t = (h >>> 16) % 4;
+      if (t === 0) drawHedgehog(p.x, p.y, u);
+      else if (t === 1) drawSandbags(p.x, p.y, u);
+      else if (t === 2) drawDrums(p.x, p.y, u);
+      else drawRock(p.x, p.y, u, h);
       ctx.globalAlpha = 1;
     }
   }
@@ -2953,7 +2987,7 @@ function drawSquad(t) {
   const g = G, d = g.dims;
   const n = Math.min(g.count, QDRAW);
   if (n <= 0) return;
-  const moving = g.phase === 'run' && !g.halt;
+  const moving = Math.abs(g.vx) > 0.8;
   const wid = g.weapon.id;
   for (const i of DRAW_ORDER) {
     if (i >= n) continue;
@@ -3460,7 +3494,7 @@ function drawBullets() {
     const tail = b.kind === 'laser' ? 4 : b.kind === 'minigun' ? 1.5 : b.kind === 'rocket' ? 0.8 : 1.1;
     const a = P(b.x, 0.62, b.z), c = P(b.x - b.vx * 0.02, 0.62, b.z - tail);
     if (!a || !c) continue;
-    const st = b.star >= 3 ? 1.4 : 1;
+    const st = (b.star >= 3 ? 1.4 : 1) * 1.3;
     ctx.strokeStyle = W.glow; ctx.lineWidth = Math.max(2, a.s * (b.kind === 'rocket' ? 0.3 : 0.16) * st);
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(c.x, c.y); ctx.stroke();
     ctx.strokeStyle = b.star >= 2 ? '#ffffff' : W.col; ctx.lineWidth = Math.max(1, a.s * (b.kind === 'rocket' ? 0.14 : 0.06));
@@ -3655,8 +3689,7 @@ function drawPropsCastle() {
     if (!p) continue;
     ctx.globalAlpha = fade(p.dz);
     const u = p.s;
-    if (k % 5 === 0 && k > 0) drawSign(p, Math.max(0, Math.round(g.len - z)));
-    else if (k % 4 === 1) drawTower(P(ROAD + 3.2, 0, z), u);
+    if (k % 4 === 1) drawTower(P(ROAD + 3.2, 0, z), u);
     else drawBanner(p.x, p.y, u, k);
     const q = P(-ROAD - 0.38, 1.05, k * S + 6);
     if (q && k % 2 === 0) drawBanner(q.x, q.y, q.s * 0.8, k + 1);
